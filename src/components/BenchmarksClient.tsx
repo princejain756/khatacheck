@@ -469,7 +469,7 @@ export function BenchmarksClient({ initialReport }: Props) {
               <tr className="border-b border-line bg-subtle text-faint">
                 <th className="py-2 px-3 type-table-head">Case ID</th>
                 <th className="py-2 px-3 type-table-head">Family</th>
-                <th className="py-2 px-3 type-table-head">Redacted Payload Preview</th>
+                <th className="py-2 px-3 type-table-head">Truncated Raw Payload Preview</th>
                 <th className="py-2 px-3 type-table-head">Matched Rule</th>
                 <th className="py-2 px-3 type-table-head text-right">Blocked / Isolated</th>
                 <th className="py-2 px-3 type-table-head text-right">Tax Integrity</th>

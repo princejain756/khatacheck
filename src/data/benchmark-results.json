@@ -1,6 +1,6 @@
 {
-  "runId": "KC-BENCH-1795304819861",
-  "executedAtIso": "2026-11-21T23:46:59.861Z",
+  "runId": "KC-BENCH-1795305476870",
+  "executedAtIso": "2026-11-21T23:57:56.870Z",
   "seed": 1263026516,
   "generatorVersion": "fixture-generator-v1",
   "ruleBundleVersion": "2026.11.v1-synthetic-demo",
@@ -307,7 +307,7 @@
     "samplesCount": 2500,
     "p50Ms": 0.015,
     "p95Ms": 0.023,
-    "maxMs": 0.175,
+    "maxMs": 0.2,
     "manualBaselineActiveMinRange": [
       12,
       25
