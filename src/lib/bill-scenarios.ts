@@ -58,7 +58,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
       placeOfSupplyStateCode: "27",
       invoiceNumber: "SLGW/24-25/0736",
       challanNumber: "CH-0736",
-      invoiceDate: "2026-11-20",
+      invoiceDate: "2025-01-15",
       receivedAtIso: "2026-11-20T09:14:00.000Z",
       roundOffPaise: "0",
       declaredTaxableSubtotalPaise: "2856000",

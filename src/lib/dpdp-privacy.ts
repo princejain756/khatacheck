@@ -91,7 +91,7 @@ export const DPDP_CONSENT_NOTICE = {
     minimization:
       "Unrelated walk-in customer phone numbers, personal emails, PAN, Aadhaar, and UPI handles are masked locally before OCR/model inference.",
     retention:
-      "Raw bill photos and audio clips automatically expire and purge after 30 days. Only non-personal verified tax hashes and dispute ledgers remain for audit.",
+      "30-day raw-media retention policy: uploaded photos and audio are processed in memory during the Stage 4 web demo and scheduled for 30-day automated expiry upon Gate 5 pilot deployment. Only non-personal verified tax hashes and dispute ledgers remain for audit.",
     rights:
       "You may export all store records as JSON, withdraw processing consent, or wipe personal/store data at any time.",
   },
@@ -102,7 +102,7 @@ export const DPDP_CONSENT_NOTICE = {
     minimization:
       "ग्राहकों के मोबाइल नंबर, व्यक्तिगत ईमेल, PAN और UPI आईडी मॉडल विश्लेषण से पहले ही लोकल स्तर पर हटा दिए जाते हैं।",
     retention:
-      "बिल की मूल फोटो और ऑडियो 30 दिनों में स्वतः हट जाते हैं; केवल ऑडिट और टैक्स हैश सुरक्षित रहते हैं।",
+      "30 दिनों की रिटेंशन नीति लागू है; डेमो में कच्ची फाइलें डिस्क पर सेव नहीं होतीं और केवल ऑडिट व टैक्स हैश सुरक्षित रहते हैं।",
     rights:
       "आप कभी भी अपना पूरा डेटा JSON में डाउनलोड कर सकते हैं या एक क्लिक से सारा डेटा मिटा सकते हैं।",
   },

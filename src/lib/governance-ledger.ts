@@ -163,6 +163,29 @@ export function readLedgerEvents(): AuditLedgerEvent[] {
   return events;
 }
 
+export function isInvoiceApprovedInEvents(events: AuditLedgerEvent[], invoiceId: string): boolean {
+  return events.some(
+    (e) =>
+      e.invoiceId === invoiceId &&
+      (e.decision === "approved_flag" || e.decision === "overridden_clean")
+  );
+}
+
+export function getApprovedInvoiceIds(): string[] {
+  const events = readLedgerEvents();
+  const ids = new Set<string>();
+  for (const e of events) {
+    if (e.decision === "approved_flag" || e.decision === "overridden_clean") {
+      ids.add(e.invoiceId);
+    }
+  }
+  return [...ids];
+}
+
+export function hasApprovedLedgerDecision(invoiceId: string): boolean {
+  return isInvoiceApprovedInEvents(readLedgerEvents(), invoiceId);
+}
+
 export function appendLedgerDecision(input: {
   tenantId: string;
   invoiceId: string;
@@ -481,21 +504,21 @@ export const LIFECYCLE_GATES = [
     gate: "Gate 1 · Intake",
     question: "Is AI needed and what is the risk tier?",
     status: "PASS",
-    owner: "Prince Jain (Engineering)",
+    owner: "Prince Jain (Full-Stack Software Engineer)",
     evidence: "Multimodal OCR + ASR strictly for messy paper bills; deterministic code handles 100% of tax math.",
   },
   {
     gate: "Gate 2 · Data & Privacy",
     question: "Is personal data lawful, minimized, and consented?",
     status: "PASS",
-    owner: "Prince Jain (Privacy Lead)",
-    evidence: "DPDP pre-inference scrubber strips customer phone/PAN/UPI; English + Hindi notice; 30-day raw-image purge.",
+    owner: "Prince Jain (Full-Stack Software Engineer)",
+    evidence: "DPDP pre-inference scrubber strips customer phone/PAN/UPI; English + Hindi notice; 30-day raw-media retention policy (demo processes uploads in memory) & one-click /delete-data erasure.",
   },
   {
     gate: "Gate 3 · Build & Red-Team",
     question: "Tested across subgroups, edge math, and adversarial injection?",
     status: "PASS",
-    owner: "Prince Jain (Evaluation)",
+    owner: "Prince Jain (Full-Stack Software Engineer)",
     evidence: "500-invoice fault-injection suite across 5 strata + 50 red-team injection cases executed reproducibly.",
   },
   {

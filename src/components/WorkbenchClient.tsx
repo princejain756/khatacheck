@@ -28,6 +28,7 @@ interface Props {
   initialScenarioId: string;
   initialInvoice: InvoiceInput;
   initialResult: VerificationResult;
+  initialApprovedIds: string[];
 }
 
 export function WorkbenchClient({
@@ -35,10 +36,12 @@ export function WorkbenchClient({
   initialScenarioId,
   initialInvoice,
   initialResult,
+  initialApprovedIds,
 }: Props) {
   const [selectedId, setSelectedId] = useState(initialScenarioId);
   const [invoice, setInvoice] = useState<InvoiceInput>(initialInvoice);
   const [result, setResult] = useState<VerificationResult>(initialResult);
+  const [approvedIds, setApprovedIds] = useState<string[]>(initialApprovedIds);
   const [voiceInput, setVoiceInput] = useState(initialInvoice.voiceTranscriptRaw ?? "");
   const [enablePiiScrub, setEnablePiiScrub] = useState(true);
   const [activeLineHighlight, setActiveLineHighlight] = useState<number | null>(
@@ -181,6 +184,9 @@ export function WorkbenchClient({
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Failed to record decision");
+      if (decision === "approved_flag" || decision === "overridden_clean") {
+        setApprovedIds((prev) => (prev.includes(invoice.id) ? prev : [...prev, invoice.id]));
+      }
       setOverrideOpen(false);
       setOverrideReason("");
       setStatusMsg(
@@ -208,6 +214,8 @@ export function WorkbenchClient({
     if (resp.ok) setResult(data.verification);
   };
 
+  const tallyApproved = approvedIds.includes(invoice.id);
+
   return (
     <div className="space-y-5">
       {/* Header Row */}
@@ -220,13 +228,25 @@ export function WorkbenchClient({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={`/api/export?format=tally-xml&scenarioId=${encodeURIComponent(selectedId)}`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Tally Sandbox XML
-          </a>
+          {tallyApproved ? (
+            <a
+              href={`/api/export?format=tally-xml&scenarioId=${encodeURIComponent(invoice.id)}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Tally Sandbox XML
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title="Record store owner approval below to enable Tally Sandbox XML export"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line type-pill text-faint opacity-60 cursor-not-allowed"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              Tally XML (Approval Required)
+            </button>
+          )}
           <a
             href="/api/export?format=dispute-csv"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
@@ -588,7 +608,7 @@ export function WorkbenchClient({
               <div className="type-meta text-muted flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 shrink-0 text-cobalt" />
                 <span>
-                  Human accountability gate: no claim or Tally export unlocks without store owner review.
+                  Human accountability gate: every claim and Tally Sandbox XML export requires recorded store owner approval.
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2">

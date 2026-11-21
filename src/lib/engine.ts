@@ -26,7 +26,6 @@ export function verifyInvoicePipeline(
   }
 ): VerificationResult {
   const startNs = process.hrtime.bigint();
-  const tFlagIso = new Date().toISOString();
   const vendorHistory = options?.vendorHistory ?? [];
   const priorBills = options?.priorBills ?? [];
   const enablePiiScrub = options?.enablePiiScrub !== false;
@@ -66,6 +65,7 @@ export function verifyInvoicePipeline(
   // 3. Clarity Pre-Flight Abstention Gate
   if (invoice.clarityScore < CLARITY_MIN_THRESHOLD) {
     const endNs = process.hrtime.bigint();
+    const tFlagIso = new Date().toISOString();
     const latencyMs = Number(endNs - startNs) / 1e6;
     const clarityFault: DetectedFault = {
       faultId: "FLT-CLARITY-1",
@@ -179,6 +179,7 @@ export function verifyInvoicePipeline(
   }
 
   const endNs = process.hrtime.bigint();
+  const tFlagIso = new Date().toISOString();
   const latencyMs = Number(endNs - startNs) / 1e6;
 
   const hasLowConfLine = det.lineResults.some((l) => l.needsManualReview);

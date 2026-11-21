@@ -95,8 +95,8 @@ export function BenchmarksClient({ initialReport }: Props) {
       passed: report.gates.mathAccuracy100,
     },
     {
-      label: "Max Subgroup Gap <= 5%",
-      value: `${report.fairness.maxF1GapBelowMeanPct}% F1 / ${report.fairness.maxRecallGapBelowMeanPct}% Rec`,
+      label: "Max Subgroup Gap <= 5 pp",
+      value: `${report.fairness.maxF1GapBelowMeanPct} pp F1 / ${report.fairness.maxRecallGapBelowMeanPct} pp Rec`,
       passed: report.gates.fairnessGapAtMost5,
     },
     {
@@ -179,12 +179,12 @@ export function BenchmarksClient({ initialReport }: Props) {
           <div className="type-kpi-label text-faint">Substantive Detection F1</div>
           <div className="type-kpi-value numeral text-ink mt-1">{report.overall.f1Pct}%</div>
           <div className="type-meta text-muted mt-1">
-            Precision <span className="numeral">{report.overall.precisionPct}%</span> · Recall{" "}
-            <span className="numeral">{report.overall.recallPct}%</span> (95% CI{" "}
+            F1 95% CI{" "}
             <span className="numeral">
               [{report.overall.f1Ci95Bootstrap[0]}, {report.overall.f1Ci95Bootstrap[1]}]
-            </span>
-            )
+            </span>{" "}
+            · Prec <span className="numeral">{report.overall.precisionPct}%</span> · Rec{" "}
+            <span className="numeral">{report.overall.recallPct}%</span>
           </div>
         </div>
 
@@ -208,9 +208,9 @@ export function BenchmarksClient({ initialReport }: Props) {
             <span>{report.fairness.fairnessGatePassed ? "Pass" : "Hold"}</span>
           </div>
           <div className="type-meta text-muted mt-1">
-            Max gap <span className="numeral">{report.fairness.maxF1GapBelowMeanPct}%</span> F1 ·{" "}
-            <span className="numeral">{report.fairness.maxRecallGapBelowMeanPct}%</span> Rec (Gate{" "}
-            &lt;= <span className="numeral">{report.fairness.launchGateThresholdPct}%</span>)
+            Max gap <span className="numeral">{report.fairness.maxF1GapBelowMeanPct} pp</span> F1 ·{" "}
+            <span className="numeral">{report.fairness.maxRecallGapBelowMeanPct} pp</span> Rec (Gate{" "}
+            &lt;= <span className="numeral">{report.fairness.launchGateThresholdPct} pp</span>)
           </div>
         </div>
 
@@ -220,7 +220,7 @@ export function BenchmarksClient({ initialReport }: Props) {
             {report.redTeam.blockedOrIsolated} / {report.redTeam.totalAttacks}
           </div>
           <div className="type-meta text-muted mt-1">
-            <span className="numeral">{report.redTeam.passRatePct}%</span> quarantined ·{" "}
+            <span className="numeral">{report.redTeam.passRatePct}%</span> blocked/isolated ·{" "}
             <span className="numeral">{report.redTeam.taxIntegrityPreserved}</span> tax integrity intact
           </div>
         </div>
@@ -249,7 +249,7 @@ export function BenchmarksClient({ initialReport }: Props) {
                 report.fairness.fairnessGatePassed ? "pill-success" : "pill-danger"
               }`}
             >
-              Gap &lt;= {report.fairness.launchGateThresholdPct}% Enforced
+              Gap &lt;= {report.fairness.launchGateThresholdPct} pp Enforced
             </span>
           </div>
 
@@ -426,7 +426,7 @@ export function BenchmarksClient({ initialReport }: Props) {
             </p>
           </div>
           <div className="type-meta font-code text-muted">
-            Zero PII Leaks: {report.redTeam.piiZeroLeakPassed}/{report.redTeam.totalAttacks} · Cross-Tenant:{" "}
+            Zero PII Leaks: {report.redTeam.piiZeroLeakPassed}/{report.redTeam.totalAttacks} · Export Blocked:{" "}
             {report.redTeam.crossTenantIsolated}/{report.redTeam.totalAttacks}
           </div>
         </div>
@@ -468,7 +468,7 @@ export function BenchmarksClient({ initialReport }: Props) {
                 <th className="py-2 px-3 type-table-head">Family</th>
                 <th className="py-2 px-3 type-table-head">Redacted Payload Preview</th>
                 <th className="py-2 px-3 type-table-head">Matched Rule</th>
-                <th className="py-2 px-3 type-table-head text-right">Quarantined</th>
+                <th className="py-2 px-3 type-table-head text-right">Blocked / Isolated</th>
                 <th className="py-2 px-3 type-table-head text-right">Tax Integrity</th>
               </tr>
             </thead>

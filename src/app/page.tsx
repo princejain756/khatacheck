@@ -1,6 +1,7 @@
 import { WorkbenchClient } from "@/components/WorkbenchClient";
 import { DEMO_PRIOR_BILLS, DEMO_SCENARIOS, DEMO_VENDOR_HISTORY } from "@/lib/bill-scenarios";
 import { verifyInvoicePipeline } from "@/lib/engine";
+import { getApprovedInvoiceIds } from "@/lib/governance-ledger";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export default function HomePage() {
       initialScenarioId={first.id}
       initialInvoice={first.invoice}
       initialResult={initialResult}
+      initialApprovedIds={getApprovedInvoiceIds()}
     />
   );
 }

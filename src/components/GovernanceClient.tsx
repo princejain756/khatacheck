@@ -5,6 +5,7 @@ import {
   AlertOctagon,
   CheckCircle2,
   Download,
+  Lock,
   RefreshCw,
   ShieldAlert,
   ShieldCheck,
@@ -98,6 +99,12 @@ export function GovernanceClient({
     }
   };
 
+  const defaultTallyApproved = events.some(
+    (e) =>
+      e.invoiceId === "SCN-01-KIRANA-SHORT" &&
+      (e.decision === "approved_flag" || e.decision === "overridden_clean")
+  );
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -115,13 +122,25 @@ export function GovernanceClient({
             <Download className="w-3.5 h-3.5" />
             ISO 42001 JSON Manifest
           </a>
-          <a
-            href="/api/export?format=tally-xml"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Tally Sandbox XML
-          </a>
+          {defaultTallyApproved ? (
+            <a
+              href="/api/export?format=tally-xml&scenarioId=SCN-01-KIRANA-SHORT"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Tally Sandbox XML
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title="Approve or override a review decision first to enable Tally Sandbox XML export"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line type-pill text-faint opacity-60 cursor-not-allowed"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              Tally XML (Approval Required)
+            </button>
+          )}
         </div>
       </div>
 

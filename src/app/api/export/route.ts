@@ -5,6 +5,7 @@ import {
   buildDisputeCsv,
   buildTallyPurchaseXml,
   computeAutomationBiasMonitor,
+  hasApprovedLedgerDecision,
   readLedgerEvents,
   verifyHashChain,
 } from "@/lib/governance-ledger";
@@ -17,6 +18,17 @@ export async function GET(req: NextRequest) {
 
   if (format === "tally-xml") {
     const scenario = DEMO_SCENARIOS.find((s) => s.id === scenarioId) ?? DEMO_SCENARIOS[0];
+    if (!hasApprovedLedgerDecision(scenario.id)) {
+      return NextResponse.json(
+        {
+          error:
+            "Store owner approval in the SHA-256 audit ledger is required before Tally Sandbox XML export.",
+          scenarioId: scenario.id,
+          approved: false,
+        },
+        { status: 403, headers: { "Cache-Control": "no-store" } }
+      );
+    }
     const xml = buildTallyPurchaseXml(scenario.invoice);
     return new NextResponse(xml, {
       headers: {
