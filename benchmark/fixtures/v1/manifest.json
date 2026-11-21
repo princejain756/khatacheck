@@ -1,0 +1,10 @@
+{
+  "seed": 1263026516,
+  "generatorVersion": "fixture-generator-v1",
+  "ruleBundleVersion": "2026.11.v1-synthetic-demo",
+  "fileHashes": {
+    "invoicesSha256": "e38b3fbe2180e6e7925dfd10ef22c3bf149410bfca8ff27e07534eab0165bc24",
+    "labelsSha256": "26ac42e2bee9a1ddc88f90640c6f8008e8d93d8c1931207edc094e156d29a3d2",
+    "attacksSha256": "859bae4f5b1c715f418368875b629434a30e491e68a5617c167da1d18b83cef5"
+  }
+}

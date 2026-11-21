@@ -1,0 +1,297 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-subtle: var(--bg-subtle);
+  --color-raised: var(--bg-raised);
+  --color-ink: var(--text-ink);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+  --color-line: var(--border-line);
+  --color-line-strong: var(--border-strong);
+  --color-field: var(--border-field);
+  --color-rail: var(--rail-bg);
+  --color-rail-hover: var(--rail-hover);
+  --color-accent: var(--accent-main);
+  --color-accent-ink: var(--accent-ink);
+  --color-cobalt: var(--brand-cobalt);
+}
+
+:root {
+  color-scheme: light;
+  --bg-canvas: #F7F7F5;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #F1F1EF;
+  --bg-raised: #FFFFFF;
+
+  --text-ink: #111113;
+  --text-muted: #49494F;
+  --text-faint: #606067;
+
+  --border-line: rgba(17, 17, 19, 0.08);
+  --border-strong: rgba(17, 17, 19, 0.16);
+  --border-field: #87878F;
+
+  --rail-bg: #FAFAF9;
+  --rail-hover: #F0F0EE;
+
+  --accent-main: #18181B;
+  --accent-ink: #FFFFFF;
+  --brand-cobalt: #1D4ED8;
+
+  --elevation-card: 0 1px 2px rgba(17, 17, 19, 0.045), 0 4px 12px rgba(17, 17, 19, 0.035);
+
+  --heat-0-bg: #F4F4F2;
+  --heat-1-bg: #E4EDE6;
+  --heat-2-bg: #C4DCCB;
+  --heat-3-bg: #8EC09E;
+  --heat-4-bg: #4A9566;
+  --heat-5-bg: #236B42;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg-canvas: #0A0A0C;
+  --bg-surface: #121215;
+  --bg-subtle: #1B1B20;
+  --bg-raised: #1E1E23;
+
+  --text-ink: #F4F4F5;
+  --text-muted: #B4B4BD;
+  --text-faint: #A0A0AA;
+
+  --border-line: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --border-field: #696973;
+
+  --rail-bg: #101013;
+  --rail-hover: #1C1C21;
+
+  --accent-main: #F4F4F5;
+  --accent-ink: #0A0A0C;
+  --brand-cobalt: #3B82F6;
+
+  --elevation-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 1px 2px rgba(0, 0, 0, 0.30),
+    0 4px 14px rgba(0, 0, 0, 0.18);
+
+  --heat-0-bg: #16161A;
+  --heat-1-bg: #192C22;
+  --heat-2-bg: #1F4531;
+  --heat-3-bg: #296645;
+  --heat-4-bg: #368D5C;
+  --heat-5-bg: #4FB87C;
+}
+
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
+@layer base {
+  html,
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--text-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+.type-hero {
+  font-size: 2.125rem;
+  line-height: 2.375rem;
+  font-weight: 620;
+  letter-spacing: -0.042em;
+}
+@media (min-width: 640px) {
+  .type-hero {
+    font-size: 3.25rem;
+    line-height: 3.5rem;
+  }
+}
+
+.type-kpi-value {
+  font-size: 1.75rem;
+  line-height: 2.125rem;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.type-page {
+  font-size: 1.5rem;
+  line-height: 1.875rem;
+  font-weight: 620;
+  letter-spacing: -0.028em;
+}
+@media (min-width: 640px) {
+  .type-page {
+    font-size: 1.625rem;
+    line-height: 2rem;
+  }
+}
+
+.type-drawer {
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.type-section {
+  font-size: 1.125rem;
+  line-height: 1.5rem;
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+.type-body {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 400;
+}
+
+.type-table-cell {
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+  font-weight: 450;
+}
+
+.type-kpi-label {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 550;
+}
+
+.type-pill {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 550;
+}
+
+.type-meta {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 450;
+}
+
+.type-table-head {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+.numeral {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+.font-code {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-line);
+  border-radius: 0.75rem;
+  box-shadow: var(--elevation-card);
+}
+
+.app-field {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-field);
+  border-radius: 0.5rem;
+  color: var(--text-ink);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.app-field:focus-visible {
+  outline: none;
+  border-color: var(--text-ink);
+  box-shadow: 0 0 0 2px var(--border-line);
+}
+
+.app-rail-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.pill-neutral {
+  background-color: var(--bg-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border-line);
+}
+
+.pill-cobalt {
+  background-color: rgba(29, 78, 216, 0.1);
+  color: #1D4ED8;
+  border: 1px solid rgba(29, 78, 216, 0.24);
+}
+.dark .pill-cobalt {
+  background-color: rgba(59, 130, 246, 0.16);
+  color: #93C5FD;
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.pill-success {
+  background-color: rgba(22, 163, 74, 0.1);
+  color: #15803D;
+  border: 1px solid rgba(22, 163, 74, 0.22);
+}
+.dark .pill-success {
+  background-color: rgba(34, 197, 94, 0.14);
+  color: #86EFAC;
+  border-color: rgba(34, 197, 94, 0.28);
+}
+
+.pill-warning {
+  background-color: rgba(217, 119, 6, 0.1);
+  color: #B45309;
+  border: 1px solid rgba(217, 119, 6, 0.24);
+}
+.dark .pill-warning {
+  background-color: rgba(245, 158, 11, 0.14);
+  color: #FCD34D;
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.pill-danger {
+  background-color: rgba(220, 38, 38, 0.1);
+  color: #B91C1C;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+}
+.dark .pill-danger {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #FCA5A5;
+  border-color: rgba(239, 68, 68, 0.28);
+}
+
+.heat-0 { background-color: var(--heat-0-bg); }
+.heat-1 { background-color: var(--heat-1-bg); }
+.heat-2 { background-color: var(--heat-2-bg); }
+.heat-3 { background-color: var(--heat-3-bg); }
+.heat-4 { background-color: var(--heat-4-bg); }
+.heat-5 { background-color: var(--heat-5-bg); }
+
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+  }
+  .app-card {
+    box-shadow: none !important;
+    border-color: #D4D4D8 !important;
+  }
+}

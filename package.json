@@ -1,0 +1,32 @@
+{
+  "name": "khatacheck",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KhataCheck: Responsible AI GST Invoice and Short-Billing Verifier for Small Indian Retailers",
+  "scripts": {
+    "dev": "next dev --port 4290",
+    "build": "next build",
+    "start": "next start --port 4290",
+    "lint": "eslint src scripts",
+    "typecheck": "tsc --noEmit",
+    "benchmark": "npx tsx scripts/run_benchmarks.mjs generate && npx tsx scripts/run_benchmarks.mjs run",
+    "test": "npx tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "lucide-react": "^0.511.0",
+    "next": "^16.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "eslint": "^9.25.0",
+    "eslint-config-next": "^16.0.0",
+    "tailwindcss": "^4.1.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.8.0"
+  }
+}

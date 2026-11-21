@@ -1,0 +1,197 @@
+import { computeGstinCheckChar } from "./gst-rules";
+import { halfUpDiv, parseINRToPaise } from "./money";
+import type { InvoiceInput, InvoiceLineInput } from "./types";
+
+/**
+ * Pure TypeScript digital PDF ASCII/text-layer extractor + structured text/CSV/JSON bill parser
+ * so custom uploads work reliably without external native binaries.
+ */
+export function extractTextFromBuffer(buf: Buffer, filename: string): {
+  kind: "json" | "csv" | "pdf_text" | "text" | "image_requires_review";
+  extractedText: string;
+  clarityHint: number;
+} {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")) {
+    // Simple byte-entropy / size proxy for image uploads (never pretends OCR ran without adapter)
+    const clarityHint = buf.length < 25000 ? 62 : 175;
+    return {
+      kind: "image_requires_review",
+      extractedText: "",
+      clarityHint,
+    };
+  }
+  if (lower.endsWith(".pdf")) {
+    const latin = buf.toString("latin1");
+    const tokens: string[] = [];
+    const litRegex = /\(([^()]{2,200})\)\s*Tj/g;
+    for (const m of latin.matchAll(litRegex)) {
+      const cleaned = m[1].replace(/\\([()\\])/g, "$1").replace(/[^\x20-\x7E\n]/g, " ").trim();
+      if (cleaned) tokens.push(cleaned);
+    }
+    const text = tokens.join("\n").trim();
+    return {
+      kind: "pdf_text",
+      extractedText: text,
+      clarityHint: text.length > 20 ? 210 : 70,
+    };
+  }
+  const utf = buf.toString("utf8");
+  if (lower.endsWith(".json") || utf.trim().startsWith("{")) {
+    return { kind: "json", extractedText: utf, clarityHint: 230 };
+  }
+  if (lower.endsWith(".csv")) {
+    return { kind: "csv", extractedText: utf, clarityHint: 230 };
+  }
+  return { kind: "text", extractedText: utf, clarityHint: 215 };
+}
+
+export function parseCustomInvoiceText(
+  rawText: string,
+  options?: {
+    voiceTranscript?: string;
+    clarityScore?: number;
+    fallbackVendorGstin?: string;
+  }
+): InvoiceInput {
+  const trimmed = rawText.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed) as Partial<InvoiceInput>;
+      if (parsed && Array.isArray(parsed.lines) && parsed.lines.length > 0) {
+        return {
+          id: parsed.id || `UPL-${Date.now()}`,
+          tenantId: parsed.tenantId || "store-ganesh-blr-01",
+          vendorName: parsed.vendorName || "Uploaded Wholesale Supplier",
+          vendorGstin: parsed.vendorGstin || "29AAAAA0000A1ZY",
+          buyerName: parsed.buyerName || "Ganesh Kirana Stores",
+          buyerGstin: parsed.buyerGstin || "29BBBBB1111B2ZM",
+          supplierStateCode: parsed.supplierStateCode || (parsed.vendorGstin || "29").slice(0, 2),
+          placeOfSupplyStateCode: parsed.placeOfSupplyStateCode || "29",
+          invoiceNumber: parsed.invoiceNumber || `UPL/${Date.now().toString().slice(-4)}`,
+          challanNumber: parsed.challanNumber,
+          invoiceDate: parsed.invoiceDate || "2026-11-21",
+          receivedAtIso: new Date().toISOString(),
+          roundOffPaise: parsed.roundOffPaise || "0",
+          declaredTaxableSubtotalPaise: parsed.declaredTaxableSubtotalPaise || "0",
+          declaredTotalTaxPaise: parsed.declaredTotalTaxPaise || "0",
+          declaredGrandTotalPaise: parsed.declaredGrandTotalPaise || "0",
+          clarityScore: options?.clarityScore ?? parsed.clarityScore ?? 210,
+          subgroup: parsed.subgroup || "printed_en",
+          voiceTranscriptRaw: options?.voiceTranscript || parsed.voiceTranscriptRaw,
+          notesRaw: parsed.notesRaw,
+          lines: parsed.lines,
+        };
+      }
+    } catch {
+      // Fall through to plain line parser
+    }
+  }
+
+  // Parse pipe/CSV/free-text invoice snippets cleanly
+  const gstinMatch = /\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b/.exec(trimmed.toUpperCase());
+  const defaultPrefix = "29CUSTM1234A1Z";
+  const defaultGstin = defaultPrefix + computeGstinCheckChar(defaultPrefix);
+  const vendorGstin = gstinMatch ? gstinMatch[0] : (options?.fallbackVendorGstin || defaultGstin);
+  const stateCode = vendorGstin.slice(0, 2);
+  const invNoMatch = /(?:invoice|bill)\s*(?:no|#|number)?[:\s-]+([A-Z0-9\/-]{3,24})/i.exec(trimmed);
+
+  const lines: InvoiceLineInput[] = [];
+  const rows = trimmed.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  let idx = 1;
+  let totalTaxable = 0n;
+  let totalTax = 0n;
+
+  for (const row of rows) {
+    if (/^sku[,|]/i.test(row) || /^(?:gstin|invoice|buyer|supplier|vendor)\s*[:]/i.test(row)) continue;
+    // Expected flexible line format: Description | HSN | Qty | Unit | Rate | GST% [| DeclaredTotal]
+    const parts = row.split(/[|,]/).map((s) => s.trim());
+    if (parts.length >= 5 && /^\d{4,8}$/.test(parts[1])) {
+      const desc = parts[0];
+      const hsn = parts[1].slice(0, 4);
+      const qtyNum = Number(parts[2]);
+      const unit = parts[3] || "pcs";
+      const ratePaise = parseINRToPaise(parts[4]);
+      const gstPct = Number((parts[5] ?? "5").replace("%", "")) || 5;
+      const qtyMilli = Math.max(1000, Math.round((Number.isFinite(qtyNum) ? qtyNum : 1) * 1000));
+      const taxable = halfUpDiv(BigInt(qtyMilli) * ratePaise, 1000n);
+      const bps = Math.round(gstPct * 100);
+      const halfBps = Math.floor(bps / 2);
+      const cgst = halfUpDiv(taxable * BigInt(halfBps), 10000n);
+      const sgst = halfUpDiv(taxable * BigInt(bps - halfBps), 10000n);
+      const computedLineTotal = taxable + cgst + sgst;
+      const declaredTotal = parts[6] ? parseINRToPaise(parts[6]) : computedLineTotal;
+
+      lines.push({
+        lineNumber: idx,
+        sku: desc.toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 18),
+        description: desc,
+        hsnCode: hsn,
+        qtyMilli,
+        unit,
+        unitRatePaise: ratePaise.toString(),
+        discountPaise: "0",
+        declaredTaxablePaise: taxable.toString(),
+        declaredCgstBps: halfBps,
+        declaredSgstBps: bps - halfBps,
+        declaredIgstBps: 0,
+        declaredCgstPaise: cgst.toString(),
+        declaredSgstPaise: sgst.toString(),
+        declaredIgstPaise: "0",
+        declaredLineTotalPaise: declaredTotal.toString(),
+        ocrConfidence: 0.94,
+      });
+      totalTaxable += taxable;
+      totalTax += cgst + sgst;
+      idx += 1;
+    }
+  }
+
+  if (lines.length === 0) {
+    // Fallback single structured manual line so arbitrary uploaded text is still inspected for DPDP + prompt guard
+    lines.push({
+      lineNumber: 1,
+      sku: "CUSTOM-TEXT-LINE",
+      description: trimmed.slice(0, 96) || "Manual Uploaded Line Item",
+      hsnCode: "0713",
+      qtyMilli: 10000,
+      unit: "kg",
+      unitRatePaise: "10000",
+      discountPaise: "0",
+      declaredTaxablePaise: "100000",
+      declaredCgstBps: 250,
+      declaredSgstBps: 250,
+      declaredIgstBps: 0,
+      declaredCgstPaise: "2500",
+      declaredSgstPaise: "2500",
+      declaredIgstPaise: "0",
+      declaredLineTotalPaise: "105000",
+      ocrConfidence: 0.82,
+    });
+    totalTaxable = 100000n;
+    totalTax = 5000n;
+  }
+
+  return {
+    id: `UPL-${Date.now()}`,
+    tenantId: "store-ganesh-blr-01",
+    vendorName: "Custom Uploaded Supplier",
+    vendorGstin,
+    buyerName: "Ganesh Kirana Stores",
+    buyerGstin: defaultGstin,
+    supplierStateCode: stateCode,
+    placeOfSupplyStateCode: stateCode,
+    invoiceNumber: invNoMatch ? invNoMatch[1] : `UPL/${Date.now().toString().slice(-4)}`,
+    invoiceDate: "2026-11-21",
+    receivedAtIso: new Date().toISOString(),
+    roundOffPaise: "0",
+    declaredTaxableSubtotalPaise: totalTaxable.toString(),
+    declaredTotalTaxPaise: totalTax.toString(),
+    declaredGrandTotalPaise: (totalTaxable + totalTax).toString(),
+    clarityScore: options?.clarityScore ?? 215,
+    subgroup: "printed_en",
+    voiceTranscriptRaw: options?.voiceTranscript,
+    notesRaw: trimmed,
+    lines,
+  };
+}
