@@ -95,21 +95,21 @@ export function PrivacyClient({ initialEventCount }: Props) {
   const retentionSchedule = [
     {
       artifact: "Supplier Bill Camera Photos",
-      egress: "Planned edge mask before OCR (in-memory demo)",
+      egress: "Planned edge mask before OCR (no external model calls in demo)",
       ttl: "30-day policy (in-memory demo)",
       retained: "SHA-256 + tax math hash",
     },
     {
       artifact: "Hinglish / English Transcript Notes",
-      egress: "Task-restricted transcript",
+      egress: "Optional server scrub (local parser; no external ASR)",
       ttl: "30-day policy (in-memory demo)",
       retained: "Dispute delta & approval",
     },
     {
       artifact: "Walk-in Phone, UPI, PAN, Aadhaar",
-      egress: "Blocked before model call",
-      ttl: "Never saved",
-      retained: "Zero PII stored in ledger",
+      egress: "Optional server regex scrub (no external model calls in demo)",
+      ttl: "Masked in scrubbed text",
+      retained: "Seeded rows PII-free; free-text overrideReason trimmed & stored unmasked",
     },
     {
       artifact: "Supplier 15-Char GSTIN",
@@ -250,7 +250,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
           <div className="flex items-center justify-between gap-2">
             <h2 className="type-section text-ink flex items-center gap-1.5">
               <EyeOff className="w-4 h-4 text-cobalt" />
-              Pre-Egress PII Redaction Sandbox
+              Server-Side PII Redaction Sandbox
             </h2>
             <span className="pill-success type-pill px-2 py-0.5 rounded">GSTIN Spans Preserved</span>
           </div>
@@ -264,7 +264,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
             value={sampleText}
             onChange={(e) => setSampleText(e.target.value)}
             rows={4}
-            aria-label="Raw text before model egress"
+            aria-label="Raw text for DPDP PII scrubbing"
             className="w-full app-field p-3 type-meta font-code resize-y"
           />
 
@@ -307,7 +307,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="type-kpi-label text-ink flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  Masked Output Ready for Model Inference
+                  Masked Text Output (Local Server Scrubber)
                 </span>
                 <span className="pill-cobalt type-pill px-2 py-0.5 rounded font-code">
                   {scrubResult.redactionCount} redactions
