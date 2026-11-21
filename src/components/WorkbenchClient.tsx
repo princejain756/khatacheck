@@ -42,7 +42,9 @@ export function WorkbenchClient({
   const [voiceInput, setVoiceInput] = useState(initialInvoice.voiceTranscriptRaw ?? "");
   const [enablePiiScrub, setEnablePiiScrub] = useState(true);
   const [activeLineHighlight, setActiveLineHighlight] = useState<number | null>(
-    initialResult.faults.find((f) => f.lineNumber)?.lineNumber ?? null
+    initialResult.faults.find((f) => f.category === "voice_shortage" && f.lineNumber)?.lineNumber ??
+      initialResult.faults.find((f) => f.lineNumber)?.lineNumber ??
+      null
   );
   const [busy, setBusy] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
@@ -81,7 +83,11 @@ export function WorkbenchClient({
         setVoiceInput(data.invoice.voiceTranscriptRaw ?? "");
       }
       setActiveLineHighlight(
-        data.verification.faults.find((f: { lineNumber?: number }) => f.lineNumber)?.lineNumber ?? null
+        data.verification.faults.find(
+          (f: { category?: string; lineNumber?: number }) => f.category === "voice_shortage" && f.lineNumber
+        )?.lineNumber ??
+          data.verification.faults.find((f: { lineNumber?: number }) => f.lineNumber)?.lineNumber ??
+          null
       );
       setDwellSec(1);
     } catch (e) {
@@ -367,38 +373,66 @@ export function WorkbenchClient({
             </div>
 
             {invoice.imageUrl ? (
-              <div className="relative rounded-lg overflow-hidden border border-line bg-subtle">
-                <Image
-                  src={invoice.imageUrl}
-                  alt={`Scanned bill from ${invoice.vendorName}`}
-                  width={1086}
-                  height={1448}
-                  unoptimized
-                  className="w-full h-auto block"
-                />
-                {invoice.lines.map((line) => {
-                  if (!line.bbox) return null;
-                  const highlighted = activeLineHighlight === line.lineNumber;
-                  return (
-                    <button
-                      key={line.bbox.id}
-                      type="button"
-                      onClick={() => setActiveLineHighlight(line.lineNumber)}
-                      title={line.bbox.label}
-                      style={{
-                        top: `${line.bbox.topPct}%`,
-                        left: `${line.bbox.leftPct}%`,
-                        width: `${line.bbox.widthPct}%`,
-                        height: `${line.bbox.heightPct}%`,
-                      }}
-                      className={`absolute rounded transition-all cursor-pointer ${
-                        highlighted
-                          ? "border-2 border-blue-600 bg-blue-600/20"
-                          : "border border-amber-500/70 bg-amber-500/10 hover:bg-blue-500/15"
-                      }`}
-                    />
-                  );
-                })}
+              <div className="space-y-2">
+                <div className="relative rounded-lg overflow-hidden border border-line bg-subtle">
+                  <Image
+                    src={invoice.imageUrl}
+                    alt={`Scanned bill from ${invoice.vendorName}`}
+                    width={1086}
+                    height={1448}
+                    unoptimized
+                    className="w-full h-auto block"
+                  />
+                  {invoice.lines.map((line) => {
+                    if (!line.bbox) return null;
+                    const highlighted = activeLineHighlight === line.lineNumber;
+                    const isFlagged = result.faults.some((f) => f.lineNumber === line.lineNumber);
+                    return (
+                      <button
+                        key={line.bbox.id}
+                        type="button"
+                        onClick={() => setActiveLineHighlight(line.lineNumber)}
+                        title={line.bbox.label}
+                        aria-label={line.bbox.label}
+                        style={{
+                          top: `${line.bbox.topPct}%`,
+                          left: `${line.bbox.leftPct}%`,
+                          width: `${line.bbox.widthPct}%`,
+                          height: `${line.bbox.heightPct}%`,
+                        }}
+                        className={`absolute rounded-xs transition-all cursor-pointer ${
+                          highlighted
+                            ? "border-2 border-blue-600 bg-blue-600/20 z-20"
+                            : isFlagged
+                              ? "border border-red-500/80 bg-red-500/10 hover:bg-red-500/20 z-10"
+                              : "border border-transparent hover:border-blue-500/70 hover:bg-blue-500/10"
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 type-meta text-muted">
+                  <span>
+                    {activeLineHighlight
+                      ? (() => {
+                          const row = invoice.lines.find((l) => l.lineNumber === activeLineHighlight);
+                          return row
+                            ? `Selected row #${row.lineNumber}: ${row.description}`
+                            : "Click any printed bill row to highlight";
+                        })()
+                      : "Click any printed bill row or table line to highlight"}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-xs border-2 border-blue-600 bg-blue-600/20 inline-block" />
+                      Selected
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="w-2.5 h-2.5 rounded-xs border border-red-500 bg-red-500/10 inline-block" />
+                      Flagged
+                    </span>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="rounded-lg border border-line bg-subtle p-4 space-y-2.5">
