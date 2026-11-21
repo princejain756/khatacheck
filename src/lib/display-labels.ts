@@ -37,10 +37,10 @@ export const DECISION_LABELS: Readonly<Record<string, string>> = {
 
 export const SUBGROUP_LABELS: Readonly<Record<string, string>> = {
   printed_en: "S1 · English Printed PDF",
-  bilingual_hinglish: "S2 · Hindi / Bilingual Mobile",
-  regional_devanagari: "S3 · Hinglish Handwritten Slip",
-  compressed_thermal_4g: "S4 · Kannada / Thermal 4G",
-  handwritten_challan: "S5 · Tamil / Mixed Voice",
+  bilingual_hinglish: "S2 · Bilingual Hinglish Mobile",
+  regional_devanagari: "S3 · Regional Devanagari",
+  compressed_thermal_4g: "S4 · Compressed Thermal 4G",
+  handwritten_challan: "S5 · Handwritten Challan",
 };
 
 export const MERCHANDISE_LABELS: Readonly<Record<string, string>> = {
