@@ -64,6 +64,10 @@ export function BenchmarksClient({ initialReport }: Props) {
     URL.revokeObjectURL(url);
   };
 
+  const pilotBadgeLabel = report.latency.pilotStatus.startsWith("NOT_RUN")
+    ? `Pilot: Not Run (${report.latency.pilotProtocolStoreCount}-Store Protocol Ready)`
+    : report.latency.pilotStatus;
+
   const filteredLogs =
     familyFilter === "all"
       ? report.redTeam.sampleLogs
@@ -153,8 +157,8 @@ export function BenchmarksClient({ initialReport }: Props) {
             </span>{" "}
             using <span className="font-code text-ink">{report.oracleProfile}</span>. Live 10-store
             Bengaluru field pilot status:{" "}
-            <span className="pill-warning px-1.5 py-0.5 rounded font-code">
-              {report.latency.pilotStatus}
+            <span className="pill-warning type-pill px-2 py-0.5 rounded">
+              {pilotBadgeLabel}
             </span>
             .
           </div>
@@ -201,7 +205,7 @@ export function BenchmarksClient({ initialReport }: Props) {
           <div className="type-kpi-label text-faint">Subgroup Parity Gate</div>
           <div className="type-kpi-value text-ink mt-1 flex items-center gap-2">
             <ShieldCheck className="w-6 h-6 text-emerald-600 dark:text-emerald-400" />
-            <span>{report.fairness.fairnessGatePassed ? "PASS" : "HOLD"}</span>
+            <span>{report.fairness.fairnessGatePassed ? "Pass" : "Hold"}</span>
           </div>
           <div className="type-meta text-muted mt-1">
             Max gap <span className="numeral">{report.fairness.maxF1GapBelowMeanPct}%</span> F1 ·{" "}
@@ -249,50 +253,52 @@ export function BenchmarksClient({ initialReport }: Props) {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-line type-kpi-label text-faint">
-                  <th className="py-2 pr-3">Stratum</th>
-                  <th className="py-2 px-2 text-right">Bills</th>
-                  <th className="py-2 px-2 text-right">Clean FPR</th>
-                  <th className="py-2 px-2 text-right">Recall</th>
-                  <th className="py-2 px-2 text-right">F1</th>
-                  <th className="py-2 px-2 text-right">Gap vs Mean</th>
-                  <th className="py-2 pl-2 text-right">Gate</th>
+                <tr className="border-b border-line bg-subtle text-faint">
+                  <th className="py-2 px-3 type-table-head">Stratum</th>
+                  <th className="py-2 px-3 type-table-head text-right">Bills</th>
+                  <th className="py-2 px-3 type-table-head text-right">Clean FPR</th>
+                  <th className="py-2 px-3 type-table-head text-right">Recall</th>
+                  <th className="py-2 px-3 type-table-head text-right">F1</th>
+                  <th className="py-2 px-3 type-table-head text-right">Gap vs Mean</th>
+                  <th className="py-2 px-3 type-table-head text-right">Gate</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line type-meta">
+              <tbody className="divide-y divide-line">
                 {report.fairness.subgroups.map((row) => {
                   const rowPass =
                     Math.abs(row.f1GapFromMeanPct) <= report.fairness.launchGateThresholdPct &&
                     Math.abs(row.recallGapFromMeanPct) <= report.fairness.launchGateThresholdPct;
                   return (
                     <tr key={row.subgroup} className="hover:bg-subtle/60">
-                      <td className="py-2.5 pr-3 text-ink font-medium">
+                      <td className="py-2.5 px-3 type-table-cell text-ink font-medium">
                         {labelFor(SUBGROUP_LABELS, row.subgroup, row.subgroup)}
                       </td>
-                      <td className="py-2.5 px-2 text-right numeral text-muted">{row.total}</td>
-                      <td className="py-2.5 px-2 text-right numeral text-ink">
+                      <td className="py-2.5 px-3 type-table-cell text-right numeral text-muted">
+                        {row.total}
+                      </td>
+                      <td className="py-2.5 px-3 type-table-cell text-right numeral text-ink">
                         {row.cleanFprPct.toFixed(1)}%
                       </td>
-                      <td className="py-2.5 px-2 text-right numeral text-ink">
+                      <td className="py-2.5 px-3 type-table-cell text-right numeral text-ink">
                         {row.recallPct.toFixed(1)}%
                       </td>
-                      <td className="py-2.5 px-2 text-right numeral font-semibold text-ink">
+                      <td className="py-2.5 px-3 type-table-cell text-right numeral font-semibold text-ink">
                         {row.f1Pct.toFixed(1)}%
                       </td>
-                      <td className="py-2.5 px-2 text-right numeral text-muted">
+                      <td className="py-2.5 px-3 type-table-cell text-right numeral text-muted">
                         {row.f1GapFromMeanPct >= 0 ? "+" : ""}
                         {row.f1GapFromMeanPct.toFixed(1)} pp
                       </td>
-                      <td className="py-2.5 pl-2 text-right">
+                      <td className="py-2.5 px-3 type-table-cell text-right">
                         <span
                           className={`type-pill px-2 py-0.5 rounded ${
                             rowPass ? "pill-success" : "pill-danger"
                           }`}
                         >
-                          {rowPass ? "PASS" : "FAIL"}
+                          {rowPass ? "Pass" : "Fail"}
                         </span>
                       </td>
                     </tr>
@@ -306,13 +312,13 @@ export function BenchmarksClient({ initialReport }: Props) {
         <div className="lg:col-span-5 space-y-4">
           {/* Manual vs Pilot Speedup Comparison Card */}
           <div className="app-card p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="type-section text-ink flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-cobalt" />
                 Detection Speed & Field Pilot Protocol
               </h2>
-              <span className="pill-warning type-pill px-2 py-0.5 rounded font-code">
-                Pilot: {report.latency.pilotStatus}
+              <span className="pill-warning type-pill px-2 py-0.5 rounded">
+                {pilotBadgeLabel}
               </span>
             </div>
             <p className="type-meta text-muted leading-relaxed">{report.latency.scopeNote}</p>
@@ -383,7 +389,7 @@ export function BenchmarksClient({ initialReport }: Props) {
               report.gates.allGatesPassed ? "pill-success" : "pill-danger"
             }`}
           >
-            {report.gates.allGatesPassed ? "ALL GATES GREEN" : "CHECK FAILED"}
+            {report.gates.allGatesPassed ? "All 7 Gates Pass" : "Check Required"}
           </span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2.5">
@@ -454,32 +460,34 @@ export function BenchmarksClient({ initialReport }: Props) {
           ))}
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-line type-kpi-label text-faint">
-                <th className="py-2 pr-3">Case ID</th>
-                <th className="py-2 px-2">Family</th>
-                <th className="py-2 px-2">Redacted Payload Preview</th>
-                <th className="py-2 px-2">Matched Rule</th>
-                <th className="py-2 px-2 text-right">Quarantined</th>
-                <th className="py-2 pl-2 text-right">Tax Integrity</th>
+              <tr className="border-b border-line bg-subtle text-faint">
+                <th className="py-2 px-3 type-table-head">Case ID</th>
+                <th className="py-2 px-3 type-table-head">Family</th>
+                <th className="py-2 px-3 type-table-head">Redacted Payload Preview</th>
+                <th className="py-2 px-3 type-table-head">Matched Rule</th>
+                <th className="py-2 px-3 type-table-head text-right">Quarantined</th>
+                <th className="py-2 px-3 type-table-head text-right">Tax Integrity</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line type-meta">
+            <tbody className="divide-y divide-line">
               {filteredLogs.map((log) => (
                 <tr key={log.caseId} className="hover:bg-subtle/60">
-                  <td className="py-2.5 pr-3 font-code text-ink whitespace-nowrap">{log.caseId}</td>
-                  <td className="py-2.5 px-2 text-muted whitespace-nowrap">
+                  <td className="py-2.5 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                    {log.caseId}
+                  </td>
+                  <td className="py-2.5 px-3 type-table-cell text-muted whitespace-nowrap">
                     {labelFor(ATTACK_FAMILY_LABELS, log.family, log.family)}
                   </td>
-                  <td className="py-2.5 px-2 font-code text-muted max-w-md truncate">
+                  <td className="py-2.5 px-3 type-table-cell font-code text-muted max-w-md truncate">
                     {log.payloadPreview}
                   </td>
-                  <td className="py-2.5 px-2 font-code text-ink whitespace-nowrap">
+                  <td className="py-2.5 px-3 type-table-cell font-code text-ink whitespace-nowrap">
                     {log.ruleMatched}
                   </td>
-                  <td className="py-2.5 px-2 text-right whitespace-nowrap">
+                  <td className="py-2.5 px-3 type-table-cell text-right whitespace-nowrap">
                     <span
                       className={`type-pill px-2 py-0.5 rounded ${
                         log.quarantined ? "pill-success" : "pill-danger"
@@ -488,7 +496,7 @@ export function BenchmarksClient({ initialReport }: Props) {
                       {log.quarantined ? "Blocked" : "Missed"}
                     </span>
                   </td>
-                  <td className="py-2.5 pl-2 text-right whitespace-nowrap">
+                  <td className="py-2.5 px-3 type-table-cell text-right whitespace-nowrap">
                     <span
                       className={`type-pill px-2 py-0.5 rounded ${
                         log.taxUnchanged ? "pill-success" : "pill-danger"

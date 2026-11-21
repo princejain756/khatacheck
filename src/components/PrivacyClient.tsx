@@ -220,23 +220,25 @@ export function PrivacyClient({ initialEventCount }: Props) {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto rounded-lg border border-line">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-line type-kpi-label text-faint">
-                  <th className="py-2 pr-2">Data Element</th>
-                  <th className="py-2 px-2">Model Egress</th>
-                  <th className="py-2 px-2">Auto-Purge</th>
-                  <th className="py-2 pl-2">Audit Kept</th>
+                <tr className="border-b border-line bg-subtle text-faint">
+                  <th className="py-2 px-3 type-table-head">Data Element</th>
+                  <th className="py-2 px-3 type-table-head">Model Egress</th>
+                  <th className="py-2 px-3 type-table-head">Auto-Purge</th>
+                  <th className="py-2 px-3 type-table-head">Audit Kept</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line type-meta">
+              <tbody className="divide-y divide-line">
                 {retentionSchedule.map((row) => (
-                  <tr key={row.artifact}>
-                    <td className="py-2 pr-2 font-medium text-ink">{row.artifact}</td>
-                    <td className="py-2 px-2 text-muted">{row.egress}</td>
-                    <td className="py-2 px-2 font-code text-ink whitespace-nowrap">{row.ttl}</td>
-                    <td className="py-2 pl-2 text-muted">{row.retained}</td>
+                  <tr key={row.artifact} className="hover:bg-subtle/60">
+                    <td className="py-2.5 px-3 type-table-cell font-medium text-ink">{row.artifact}</td>
+                    <td className="py-2.5 px-3 type-table-cell text-muted">{row.egress}</td>
+                    <td className="py-2.5 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                      {row.ttl}
+                    </td>
+                    <td className="py-2.5 px-3 type-table-cell text-muted">{row.retained}</td>
                   </tr>
                 ))}
               </tbody>
