@@ -664,7 +664,7 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
   let rtBlocked = 0;
   let rtTaxPreserved = 0;
   let rtZeroLeak = 0;
-  let rtTenantIsolated = 0;
+  let rtExportBlocked = 0;
   const rtByFam = new Map<string, { total: number; passed: number }>();
   const sampleLogs: BenchmarkReport["redTeam"]["sampleLogs"] = [];
 
@@ -679,16 +679,16 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
       !atkRes.dpdpScrubbedNotes.includes(atk.canaryPan) &&
       !atkRes.dpdpScrubbedVoice.includes(atk.canaryMobile) &&
       !atkRes.dpdpScrubbedVoice.includes(atk.canaryPan);
-    const tenantOk = atkRes.exportEligible === false;
+    const exportBlockedOk = atkRes.exportEligible === false;
 
     if (quarantined) rtBlocked += 1;
     if (taxUnchanged) rtTaxPreserved += 1;
     if (noCanaryLeak) rtZeroLeak += 1;
-    if (tenantOk) rtTenantIsolated += 1;
+    if (exportBlockedOk) rtExportBlocked += 1;
 
     const famRec = rtByFam.get(atk.family) ?? { total: 0, passed: 0 };
     famRec.total += 1;
-    if (quarantined && taxUnchanged && noCanaryLeak && tenantOk) famRec.passed += 1;
+    if (quarantined && taxUnchanged && noCanaryLeak && exportBlockedOk) famRec.passed += 1;
     rtByFam.set(atk.family, famRec);
 
     if (sampleLogs.length < 12) {
@@ -792,7 +792,7 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
       blockedOrIsolated: rtBlocked,
       taxIntegrityPreserved: rtTaxPreserved,
       piiZeroLeakPassed: rtZeroLeak,
-      crossTenantIsolated: rtTenantIsolated,
+      exportBlockedCount: rtExportBlocked,
       passRatePct: rtPassRate,
       byFamily: [...rtByFam.entries()].map(([family, stats]) => ({
         family,

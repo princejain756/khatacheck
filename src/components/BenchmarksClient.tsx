@@ -424,13 +424,13 @@ export function BenchmarksClient({ initialReport }: Props) {
               Adversarial Red-Team Evaluation (6 Attack Families · 50 Cases + Clean Controls)
             </h2>
             <p className="type-meta text-muted mt-0.5">
-              Untrusted OCR text and voice notes are isolated from GST math, HSN slabs, and cross-tenant
-              queries.
+              Untrusted text notes and transcripts are screened separately from BigInt GST math, HSN slabs,
+              and export eligibility.
             </p>
           </div>
           <div className="type-meta font-code text-muted">
-            Zero PII Leaks: {report.redTeam.piiZeroLeakPassed}/{report.redTeam.totalAttacks} · Export Blocked:{" "}
-            {report.redTeam.crossTenantIsolated}/{report.redTeam.totalAttacks}
+            Canaries Scrubbed: {report.redTeam.piiZeroLeakPassed}/{report.redTeam.totalAttacks} · Engine Export False:{" "}
+            {report.redTeam.exportBlockedCount}/{report.redTeam.totalAttacks}
           </div>
         </div>
 

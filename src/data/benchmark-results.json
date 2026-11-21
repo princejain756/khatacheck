@@ -1,6 +1,6 @@
 {
-  "runId": "KC-BENCH-1795289165933",
-  "executedAtIso": "2026-11-21T19:26:05.933Z",
+  "runId": "KC-BENCH-1795304819861",
+  "executedAtIso": "2026-11-21T23:46:59.861Z",
   "seed": 1263026516,
   "generatorVersion": "fixture-generator-v1",
   "ruleBundleVersion": "2026.11.v1-synthetic-demo",
@@ -168,7 +168,7 @@
     "blockedOrIsolated": 50,
     "taxIntegrityPreserved": 50,
     "piiZeroLeakPassed": 50,
-    "crossTenantIsolated": 50,
+    "exportBlockedCount": 50,
     "passRatePct": 100,
     "byFamily": [
       {
@@ -307,7 +307,7 @@
     "samplesCount": 2500,
     "p50Ms": 0.015,
     "p95Ms": 0.023,
-    "maxMs": 0.154,
+    "maxMs": 0.175,
     "manualBaselineActiveMinRange": [
       12,
       25

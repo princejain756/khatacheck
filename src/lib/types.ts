@@ -285,7 +285,7 @@ export interface BenchmarkReport {
     blockedOrIsolated: number;
     taxIntegrityPreserved: number;
     piiZeroLeakPassed: number;
-    crossTenantIsolated: number;
+    exportBlockedCount: number;
     passRatePct: number;
     byFamily: Array<{
       family: string;

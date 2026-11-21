@@ -13,7 +13,8 @@ export async function GET() {
     exportedAtIso: new Date().toISOString(),
     tenantId: "store-ganesh-blr-01",
     noticeVersion: DPDP_CONSENT_NOTICE.version,
-    rawMediaAutoPurgeDays: DPDP_CONSENT_NOTICE.retentionDays,
+    plannedRetentionDays: DPDP_CONSENT_NOTICE.retentionDays,
+    rawMediaExpiryWorkerStatus: "planned_days_61_to_90_in_memory_demo",
     auditLedgerEvents: events,
   };
   return new NextResponse(JSON.stringify(receipt, null, 2), {
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
         {
           ok: true,
           deletedAtIso: new Date().toISOString(),
-          notice: "All tenant review events and temporary state wiped under DPDP erasure right (/delete-data).",
+          notice: "Shared demo review ledger cleared (/privacy). Next read reseeds 4 default demo records.",
           remainingCount: 0,
         },
         { headers: { "Cache-Control": "no-store" } }

@@ -55,7 +55,7 @@ export const ATTACK_FAMILY_LABELS: Readonly<Record<string, string>> = {
   B_boundary_escape: "B · Structured Boundary Escape",
   C_encoded_payload: "C · Bounded Encoded Payload",
   D_unicode_numeric: "D · Unicode / Negative Trap",
-  E_pii_exfil: "E · Cross-Tenant PII Exfil",
+  E_pii_exfil: "E · PII Exfil & Export Probe",
   F_multilingual_override: "F · Hinglish Override Cue",
 };
 
