@@ -87,23 +87,23 @@ export const DPDP_CONSENT_NOTICE = {
   en: {
     title: "Data Processing & Privacy Notice (DPDP Act 2023)",
     purpose:
-      "KhataCheck processes supplier GST bills and short receiving voice notes solely to detect billing discrepancies, tax-slab mismatches, and rate creep for your store.",
+      "KhataCheck analyzes supplier GST bills and receiving transcript notes solely to flag billing discrepancies, tax-slab mismatches, and rate creep (live audio ASR planned for Gate 5).",
     minimization:
-      "Unrelated walk-in customer phone numbers, personal emails, PAN, Aadhaar, and UPI handles are masked locally before OCR/model inference.",
+      "Optional server text scrubbing masks walk-in customer phone numbers, personal emails, PAN, Aadhaar-like numbers, and UPI handles while preserving GSTIN-shaped patterns.",
     retention:
-      "30-day raw-media retention policy: uploaded photos and audio are processed in memory during the Stage 4 web demo and scheduled for 30-day automated expiry upon Gate 5 pilot deployment. Only non-personal verified tax hashes and dispute ledgers remain for audit.",
+      "30-day raw-media retention policy: Stage 4 web demo handles uploads in memory without disk storage; the automated 30-day expiry worker is scheduled in Days 61 to 90 controlled rollout.",
     rights:
-      "You may export all store records as JSON, withdraw processing consent, or wipe personal/store data at any time.",
+      "Export or clear the shared demo review ledger via /privacy (empty demo ledger reseeds 4 default records on next read).",
   },
   hi: {
     title: "डेटा प्रोसेसिंग और गोपनीयता सूचना (DPDP अधिनियम 2023)",
     purpose:
-      "KhataCheck आपके सप्लायर GST बिल और छोटे वॉयस नोट्स का उपयोग केवल कम सामान, गलत टैक्स स्लैब और रेट अंतर पकड़ने के लिए करता है।",
+      "KhataCheck सप्लायर GST बिल और रिसीविंग ट्रांसक्रिप्ट नोट्स की जांच केवल कम सामान, गलत टैक्स स्लैब और रेट अंतर पकड़ने के लिए करता है (लाइव ऑडियो ASR Gate 5 में प्रस्तावित है)।",
     minimization:
-      "ग्राहकों के मोबाइल नंबर, व्यक्तिगत ईमेल, PAN और UPI आईडी मॉडल विश्लेषण से पहले ही लोकल स्तर पर हटा दिए जाते हैं।",
+      "वैकल्पिक सर्वर टेक्स्ट स्क्रबिंग ग्राहक के मोबाइल नंबर, ईमेल, PAN, आधार-जैसी संख्याएं और UPI आईडी हटाती है, जबकि GSTIN पैटर्न सुरक्षित रहते हैं।",
     retention:
-      "30 दिनों की रिटेंशन नीति लागू है; डेमो में कच्ची फाइलें डिस्क पर सेव नहीं होतीं और केवल ऑडिट व टैक्स हैश सुरक्षित रहते हैं।",
+      "डेमो में कच्ची फाइलें डिस्क पर सेव नहीं होतीं; 30-दिन की स्वतः समाप्ति Days 61-90 रोलआउट में तय है, और आप /privacy से डेमो लेजर एक्सपोर्ट या क्लियर कर सकते हैं।",
     rights:
-      "आप कभी भी अपना पूरा डेटा JSON में डाउनलोड कर सकते हैं या एक क्लिक से सारा डेटा मिटा सकते हैं।",
+      "आप कभी भी /privacy से साझा डेमो रिव्यू लेजर एक्सपोर्ट या क्लियर कर सकते हैं (खाली होने पर अगली रीड पर 4 डिफॉल्ट रिकॉर्ड रीसीड होते हैं)।",
   },
 } as const;

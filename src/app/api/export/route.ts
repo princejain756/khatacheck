@@ -14,10 +14,18 @@ import { ORACLE_PROFILE_LABEL, RULE_BUNDLE_VERSION } from "@/lib/gst-rules";
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const format = searchParams.get("format") || "audit-manifest";
-  const scenarioId = searchParams.get("scenarioId") || DEMO_SCENARIOS[0].id;
+  const rawScenarioId = searchParams.get("scenarioId");
 
   if (format === "tally-xml") {
-    const scenario = DEMO_SCENARIOS.find((s) => s.id === scenarioId) ?? DEMO_SCENARIOS[0];
+    const scenario = rawScenarioId
+      ? DEMO_SCENARIOS.find((s) => s.id === rawScenarioId)
+      : DEMO_SCENARIOS[0];
+    if (!scenario) {
+      return NextResponse.json(
+        { error: "Unknown scenarioId", scenarioId: rawScenarioId },
+        { status: 404, headers: { "Cache-Control": "no-store" } }
+      );
+    }
     if (!hasApprovedLedgerDecision(scenario.id)) {
       return NextResponse.json(
         {

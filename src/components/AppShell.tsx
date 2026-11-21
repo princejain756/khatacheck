@@ -107,7 +107,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="mt-5 p-3 rounded-lg bg-subtle border border-line">
             <div className="type-kpi-label text-ink">Synthetic Demo Mode</div>
             <p className="type-meta text-muted mt-1 leading-relaxed">
-              Isolated integer-paise GST checks. Models extract bills and speech, never compute totals.
+              Isolated integer-paise GST checks on seeded bills, text uploads, and typed transcripts.
             </p>
             <div className="mt-2 flex flex-wrap gap-1">
               <span className="type-pill px-2 py-0.5 rounded pill-cobalt">ISO/IEC 42001</span>

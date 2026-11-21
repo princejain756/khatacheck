@@ -224,7 +224,7 @@ export function BenchmarksClient({ initialReport }: Props) {
               {Math.round((report.redTeam.blockedOrIsolated / report.redTeam.totalAttacks) * 1000) / 10}%
             </span>{" "}
             blocked/isolated ·{" "}
-            <span className="numeral">{report.redTeam.taxIntegrityPreserved}</span> tax integrity intact
+            <span className="numeral">{report.redTeam.taxIntegrityPreserved}</span> grand totals intact
           </div>
         </div>
       </div>
@@ -265,7 +265,7 @@ export function BenchmarksClient({ initialReport }: Props) {
                   <th className="py-2 px-3 type-table-head text-right">Clean FPR</th>
                   <th className="py-2 px-3 type-table-head text-right">Recall</th>
                   <th className="py-2 px-3 type-table-head text-right">F1</th>
-                  <th className="py-2 px-3 type-table-head text-right">Gap vs Mean</th>
+                  <th className="py-2 px-3 type-table-head text-right">F1 Gap vs Mean</th>
                   <th className="py-2 px-3 type-table-head text-right">Gate</th>
                 </tr>
               </thead>
@@ -327,7 +327,7 @@ export function BenchmarksClient({ initialReport }: Props) {
             <p className="type-meta text-muted leading-relaxed">{report.latency.scopeNote}</p>
             <div className="grid grid-cols-2 gap-2.5">
               <div className="rounded-lg bg-subtle p-2.5 border border-line">
-                <div className="type-kpi-label text-faint">Manual Kirana Check</div>
+                <div className="type-kpi-label text-faint">Stage 3 Manual Assumption</div>
                 <div className="type-section numeral text-ink mt-0.5">
                   {report.latency.manualBaselineActiveMinRange[0]} to{" "}
                   {report.latency.manualBaselineActiveMinRange[1]} min

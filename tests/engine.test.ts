@@ -130,6 +130,7 @@ test("Verification telemetry timestamps completion and Tally XML requires approv
   ];
   assert.equal(isInvoiceApprovedInEvents(sampleEvents, "SCN-01-KIRANA-SHORT"), true);
   assert.equal(isInvoiceApprovedInEvents(sampleEvents, "SCN-05-PROMPT-INJECTION"), false);
+  assert.equal(DEMO_SCENARIOS.find((s) => s.id === "UNKNOWN-ID"), undefined);
 });
 
 test("Ledger hash chain ignores undefined optional keys and verifies a 5th appended entry after JSON round-trip", () => {

@@ -100,7 +100,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
       retained: "SHA-256 + tax math hash",
     },
     {
-      artifact: "Hinglish / English Voice Notes",
+      artifact: "Hinglish / English Transcript Notes",
       egress: "Task-restricted transcript",
       ttl: "30-day policy (in-memory demo)",
       retained: "Dispute delta & approval",
@@ -125,8 +125,8 @@ export function PrivacyClient({ initialEventCount }: Props) {
         <div>
           <h1 className="type-page text-ink">DPDP Act 2023 Privacy, Masking & Data Erasure</h1>
           <p className="type-body text-muted mt-0.5">
-            Pre-egress personal identifier minimization, bilingual notice ({DPDP_CONSENT_NOTICE.version}),
-            30-day raw-media retention policy (in-memory demo), and one-click erasure.
+            Optional server text scrubbing, bilingual notice ({DPDP_CONSENT_NOTICE.version}),
+            30-day expiry plan (in-memory demo), and demo ledger export/clear.
           </p>
         </div>
         <a

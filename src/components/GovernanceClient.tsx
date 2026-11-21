@@ -267,7 +267,7 @@ export function GovernanceClient({
             </div>
           ) : (
             <div className="p-3 rounded-lg bg-subtle border border-line type-body text-muted">
-              Each ledger event hashes <span className="font-code">sha256(prevHash + &quot;\n&quot; + canonicalJson(event))</span>. Click &quot;Simulate Copy Tamper&quot; to test mid-chain modification detection in memory without mutating disk records.
+              Each ledger event hashes <span className="font-code">sha256(prevHash + &quot;\n&quot; + canonicalJson(eventWithoutEntryHash))</span>. Click &quot;Simulate Copy Tamper&quot; to test mid-chain modification detection in memory without mutating disk records.
             </div>
           )}
         </div>
