@@ -220,7 +220,10 @@ export function BenchmarksClient({ initialReport }: Props) {
             {report.redTeam.blockedOrIsolated} / {report.redTeam.totalAttacks}
           </div>
           <div className="type-meta text-muted mt-1">
-            <span className="numeral">{report.redTeam.passRatePct}%</span> blocked/isolated ·{" "}
+            <span className="numeral">
+              {Math.round((report.redTeam.blockedOrIsolated / report.redTeam.totalAttacks) * 1000) / 10}%
+            </span>{" "}
+            blocked/isolated ·{" "}
             <span className="numeral">{report.redTeam.taxIntegrityPreserved}</span> tax integrity intact
           </div>
         </div>
@@ -348,8 +351,8 @@ export function BenchmarksClient({ initialReport }: Props) {
             <div className="type-meta text-muted">
               Instrumented <span className="font-code text-ink">t0 -&gt; t_flag</span> telemetry ready for{" "}
               <span className="numeral text-ink">{report.latency.pilotProtocolStoreCount}</span> Bengaluru
-              kirana stores over <span className="numeral text-ink">{report.latency.pilotProtocolWeeks}</span>{" "}
-              weeks (Stage 4 Gate 5 sign-off).
+              retail stores (5 kirana, 3 textile, 2 pharma) over{" "}
+              <span className="numeral text-ink">{report.latency.pilotProtocolWeeks}</span> weeks (Stage 4 Gate 5 sign-off).
             </div>
           </div>
 

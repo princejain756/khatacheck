@@ -17,7 +17,9 @@ function canonicalJson(obj: unknown): string {
     return `[${obj.map((v) => canonicalJson(v)).join(",")}]`;
   }
   const rec = obj as Record<string, unknown>;
-  const keys = Object.keys(rec).sort();
+  const keys = Object.keys(rec)
+    .filter((k) => rec[k] !== undefined)
+    .sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(rec[k])}`).join(",")}}`;
 }
 
@@ -231,7 +233,7 @@ export function appendLedgerDecision(input: {
     overrideReason: input.overrideReason,
     dwellMs: Math.max(0, Math.round(input.dwellMs)),
     actorRef: input.actorRef ?? "owner_ganesh_01",
-    isSyntheticStress: input.isSyntheticStress,
+    ...(input.isSyntheticStress ? { isSyntheticStress: true } : {}),
     prevHash,
   };
 

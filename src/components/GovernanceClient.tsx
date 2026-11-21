@@ -181,7 +181,7 @@ export function GovernanceClient({
             {(bias.medianDwellMs / 1000).toFixed(1)}s
           </div>
           <div className="type-meta text-muted mt-1">
-            Alert gate: n &gt;= 50, approval &gt; 95%, dwell &lt; 3s
+            Alert gate: n &gt;= 50, approval &gt; 95%, 0 &lt; dwell &lt; 3s
           </div>
         </div>
 

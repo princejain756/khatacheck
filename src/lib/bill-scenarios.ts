@@ -44,7 +44,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
   {
     id: "SCN-01-KIRANA-SHORT",
     tabTitle: "1. Kirana Photo + Voice",
-    tag: "Photo + Hinglish ASR",
+    tag: "Seeded Photo + Transcript",
     summary: "Shree Lakshmi General Wholesalers 10-line bill photo with voice shortage, HSN mismatch & phone PII scrub",
     expectedHighlight: "Masks caller mobile via DPDP scrubber, audits all 10 rows to exact paise, catches ₹619.50 Toor Dal voice shortage + ₹38 HSN 0904 slab overcharge.",
     invoice: {

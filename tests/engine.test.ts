@@ -11,8 +11,11 @@ import {
 } from "../src/lib/gst-rules";
 import { formatPaiseINR, halfUpDiv, parseINRToPaise } from "../src/lib/money";
 import {
+  GENESIS_HASH,
   buildTallyPurchaseXml,
+  computeLedgerEntryHash,
   isInvoiceApprovedInEvents,
+  verifyHashChain,
 } from "../src/lib/governance-ledger";
 import { scanUntrustedInvoiceText } from "../src/lib/prompt-guard";
 import { parseVoiceRemarks } from "../src/lib/voice-parser";
@@ -127,4 +130,75 @@ test("Verification telemetry timestamps completion and Tally XML requires approv
   ];
   assert.equal(isInvoiceApprovedInEvents(sampleEvents, "SCN-01-KIRANA-SHORT"), true);
   assert.equal(isInvoiceApprovedInEvents(sampleEvents, "SCN-05-PROMPT-INJECTION"), false);
+});
+
+test("Ledger hash chain ignores undefined optional keys and verifies a 5th appended entry after JSON round-trip", () => {
+  const base4: AuditLedgerEvent[] = [];
+  let prev = GENESIS_HASH;
+  for (let seq = 1; seq <= 4; seq += 1) {
+    const item = {
+      seq,
+      eventId: `EVT-100${seq}`,
+      tenantId: "store-ganesh-blr-01",
+      invoiceId: `SCN-0${seq}`,
+      invoiceNumber: `INV/${seq}`,
+      vendorName: "Vendor",
+      billSha256: "a".repeat(64),
+      billReceivedTs: "2026-11-20T09:14:00.000Z",
+      flagSentTs: "2026-11-20T09:14:00.412Z",
+      ownerApprovalTs: "2026-11-20T09:14:28.900Z",
+      modelId: "m",
+      promptHash: "p",
+      ruleBundleVersion: "v",
+      fieldConfidencesMin: 0.94,
+      sourceCropBbox: null,
+      ruleChecks: [],
+      varianceAtRiskPaise: "0",
+      decision: "approved_flag" as const,
+      overrideReason: "",
+      dwellMs: 12000,
+      actorRef: "owner_ganesh_01",
+      prevHash: prev,
+    };
+    const entryHash = computeLedgerEntryHash(prev, item);
+    base4.push({ ...item, entryHash });
+    prev = entryHash;
+  }
+
+  const fifthWithoutStress = {
+    seq: 5,
+    eventId: "EVT-1005",
+    tenantId: "store-ganesh-blr-01",
+    invoiceId: "SCN-02-PHARMACY-HSN",
+    invoiceNumber: "MED/26-27/4418",
+    vendorName: "Kaveri Surgical & Pharma Distributors",
+    billSha256: "b".repeat(64),
+    billReceivedTs: "2026-11-21T10:00:00.000Z",
+    flagSentTs: "2026-11-21T10:00:00.200Z",
+    ownerApprovalTs: "2026-11-21T10:00:14.700Z",
+    modelId: "m",
+    promptHash: "p",
+    ruleBundleVersion: "v",
+    fieldConfidencesMin: 0.97,
+    sourceCropBbox: null,
+    ruleChecks: [],
+    varianceAtRiskPaise: "144000",
+    decision: "approved_flag" as const,
+    overrideReason: "",
+    dwellMs: 14500,
+    actorRef: "owner_ganesh_01",
+    prevHash: prev,
+  };
+  const hClean = computeLedgerEntryHash(prev, fifthWithoutStress);
+  const hWithUndefined = computeLedgerEntryHash(prev, {
+    ...fifthWithoutStress,
+    isSyntheticStress: undefined,
+  });
+  assert.equal(hClean, hWithUndefined);
+
+  const wireLine = JSON.stringify({ ...fifthWithoutStress, entryHash: hClean });
+  const parsedFifth = JSON.parse(wireLine) as AuditLedgerEvent;
+  const verified = verifyHashChain([...base4, parsedFifth]);
+  assert.equal(verified.valid, true);
+  assert.equal(verified.totalEntries, 5);
 });

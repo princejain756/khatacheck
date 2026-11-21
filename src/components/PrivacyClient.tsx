@@ -95,7 +95,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
   const retentionSchedule = [
     {
       artifact: "Supplier Bill Camera Photos",
-      egress: "Masked at edge before OCR",
+      egress: "Planned edge mask before OCR (in-memory demo)",
       ttl: "30-day policy (in-memory demo)",
       retained: "SHA-256 + tax math hash",
     },
@@ -147,11 +147,11 @@ export function PrivacyClient({ initialEventCount }: Props) {
         </div>
 
         <div className="app-card p-4">
-          <div className="type-kpi-label text-faint">Raw Media Auto-Purge</div>
+          <div className="type-kpi-label text-faint">Raw Media Retention Policy</div>
           <div className="type-kpi-value numeral text-ink mt-1">
             {DPDP_CONSENT_NOTICE.retentionDays} Days
           </div>
-          <div className="type-meta text-muted mt-1">Encrypted local TTL on photos & audio</div>
+          <div className="type-meta text-muted mt-1">30-day pilot plan (in-memory demo)</div>
         </div>
 
         <div className="app-card p-4">
@@ -226,7 +226,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
                 <tr className="border-b border-line bg-subtle text-faint">
                   <th className="py-2 px-3 type-table-head">Data Element</th>
                   <th className="py-2 px-3 type-table-head">Model Egress</th>
-                  <th className="py-2 px-3 type-table-head">Auto-Purge</th>
+                  <th className="py-2 px-3 type-table-head">Retention Policy</th>
                   <th className="py-2 px-3 type-table-head">Audit Kept</th>
                 </tr>
               </thead>
