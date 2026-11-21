@@ -67,6 +67,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               alt="KhataCheck emblem"
               width={32}
               height={32}
+              loading="eager"
               unoptimized
               className="w-8 h-8 rounded-md object-contain bg-white border border-line"
             />
@@ -140,6 +141,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             alt="KhataCheck emblem"
             width={28}
             height={28}
+            loading="eager"
             unoptimized
             className="w-7 h-7 rounded-md object-contain bg-white border border-line"
           />

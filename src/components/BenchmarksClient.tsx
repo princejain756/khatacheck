@@ -156,9 +156,9 @@ export function BenchmarksClient({ initialReport }: Props) {
               cases
             </span>{" "}
             using <span className="font-code text-ink">{report.oracleProfile}</span>. Live 10-store
-            Bengaluru field pilot status:{" "}
+            Bengaluru field pilot:{" "}
             <span className="pill-warning type-pill px-2 py-0.5 rounded">
-              {pilotBadgeLabel}
+              Not Run ({report.latency.pilotProtocolStoreCount}-Store Protocol Ready)
             </span>
             .
           </div>

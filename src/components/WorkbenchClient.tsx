@@ -361,7 +361,7 @@ export function WorkbenchClient({
           <div className="app-card p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="type-section text-ink">Source Evidence & Bounding Crops</h2>
-              <span className="type-pill px-2 py-0.5 rounded pill-neutral">
+              <span className="type-pill px-2 py-0.5 rounded pill-neutral whitespace-nowrap shrink-0">
                 {labelFor(SUBGROUP_LABELS, invoice.subgroup, "Standard Bill")}
               </span>
             </div>
@@ -489,7 +489,7 @@ export function WorkbenchClient({
                 {result.abstainedClarity
                   ? "Abstained: Retake Requested"
                   : result.faults.length > 0
-                    ? countLabel(result.faults.length, "Flagged Discrepancy")
+                    ? `${result.faults.length} Flagged ${result.faults.length === 1 ? "Discrepancy" : "Discrepancies"}`
                     : "Verified Clean"}
               </span>
             </div>

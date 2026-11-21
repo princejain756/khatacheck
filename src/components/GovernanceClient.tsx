@@ -168,8 +168,8 @@ export function GovernanceClient({
 
         <div className="app-card p-4">
           <div className="type-kpi-label text-faint">Lifecycle Gates</div>
-          <div className="type-kpi-value numeral text-ink mt-1">4 / 5 PASS</div>
-          <div className="type-meta text-muted mt-1">Gate 5 Live Retail Pilot: HOLD until launch</div>
+          <div className="type-kpi-value numeral text-ink mt-1">4 / 5 Pass</div>
+          <div className="type-meta text-muted mt-1">Gate 5 Live Retail Pilot: Hold until launch</div>
         </div>
       </div>
 
@@ -276,9 +276,9 @@ export function GovernanceClient({
                     <div className="font-semibold text-ink">{g.gate}</div>
                     <div className="type-meta text-faint">{g.question}</div>
                   </td>
-                  <td className="py-2.5 px-3 type-table-cell">
+                  <td className="py-2.5 px-3 type-table-cell whitespace-nowrap">
                     <span
-                      className={`type-pill px-2 py-0.5 rounded ${
+                      className={`type-pill px-2 py-0.5 rounded whitespace-nowrap ${
                         g.status === "PASS" ? "pill-success" : "pill-warning"
                       }`}
                     >

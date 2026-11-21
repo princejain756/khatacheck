@@ -43,7 +43,7 @@ export const DEMO_PRIOR_BILLS: HistoricalBillRecord[] = [
 export const DEMO_SCENARIOS: DemoScenario[] = [
   {
     id: "SCN-01-KIRANA-SHORT",
-    tabTitle: "1. Kirana Photo + Voice Shortage",
+    tabTitle: "1. Kirana Photo + Voice",
     tag: "Photo + Hinglish ASR",
     summary: "Shree Lakshmi General Wholesalers bill photo with owner voice shortage & phone PII scrub",
     expectedHighlight: "Masks caller mobile via DPDP scrubber, verifies all GST math, and catches ₹619.50 Toor Dal voice shortage.",
@@ -289,7 +289,7 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
   },
   {
     id: "SCN-04-DUPLICATE-CHALLAN",
-    tabTitle: "4. Near-Duplicate Challan Re-Bill",
+    tabTitle: "4. Duplicate Challan Re-Bill",
     tag: "83% Challan Overlap",
     summary: "Same delivery challan CH-88412 re-billed 19 days later under a new invoice number",
     expectedHighlight: "Catches 83.3% SKU/qty Jaccard overlap under CH-88412 despite changed invoice number.",

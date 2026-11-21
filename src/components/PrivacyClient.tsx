@@ -96,25 +96,25 @@ export function PrivacyClient({ initialEventCount }: Props) {
     {
       artifact: "Supplier Bill Camera Photos",
       egress: "Masked at edge before OCR",
-      ttl: "30 days auto-purge",
+      ttl: "30 days",
       retained: "SHA-256 + tax math hash",
     },
     {
       artifact: "Hinglish / English Voice Notes",
-      egress: "Task-restricted transcript only",
-      ttl: "30 days auto-purge",
-      retained: "Dispute delta & confirmation",
+      egress: "Task-restricted transcript",
+      ttl: "30 days",
+      retained: "Dispute delta & approval",
     },
     {
-      artifact: "Walk-in Phone / UPI / PAN / Aadhaar",
+      artifact: "Walk-in Phone, UPI, PAN, Aadhaar",
       egress: "Blocked before model call",
-      ttl: "0 ms persisted",
-      retained: "Never stored in ledger",
+      ttl: "Never saved",
+      retained: "Zero PII stored in ledger",
     },
     {
       artifact: "Supplier 15-Char GSTIN",
-      egress: "Permitted (statutory GST check)",
-      ttl: "Audit retention window",
+      egress: "Permitted (GST rule check)",
+      ttl: "Audit window",
       retained: "Mod-36 check & HSN ledger",
     },
   ];
@@ -235,7 +235,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
                   <tr key={row.artifact} className="hover:bg-subtle/60">
                     <td className="py-2.5 px-3 type-table-cell font-medium text-ink">{row.artifact}</td>
                     <td className="py-2.5 px-3 type-table-cell text-muted">{row.egress}</td>
-                    <td className="py-2.5 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                    <td className="py-2.5 px-3 type-table-cell numeral text-ink whitespace-nowrap">
                       {row.ttl}
                     </td>
                     <td className="py-2.5 px-3 type-table-cell text-muted">{row.retained}</td>
