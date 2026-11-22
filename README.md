@@ -1,67 +1,88 @@
 # KhataCheck: Responsible AI GST Invoice and Short-Billing Verifier
 
-KhataCheck helps small Indian retailers check supplier wholesale invoices and receiving voice notes for short billing, GST HSN slab mismatches, BigInt paise arithmetic errors, Mod-36 GSTIN checksum faults, duplicate challans, and 90-day rate creep before approving supplier payouts.
+KhataCheck helps small Indian retailers audit wholesale supplier GST bills and short Hinglish receiving voice notes before payout. Probabilistic OCR and speech models extract text only; deterministic TypeScript `BigInt` paise code computes every rupee across line sums, date-effective GST slabs, GSTIN checksums, duplicate challans, and 90-day supplier rate creep.
 
-Built by Prince Jain for the **NeuraViz AI Challenge 2026-27 (Stage 4 Final)**.
+Built by **Prince Jain** (Full-Stack Software Engineer) for the **NeuraViz AI Challenge 2026-27 (Stage 4 Final)**.
 
-- Live Web App: https://khatacheck.prince.sh
-- Public Repository: https://github.com/princejain756/khatacheck
+- **Live Web App:** https://khatacheck.prince.sh
+- **Demo Video:** https://youtu.be/1G75gl6MNBw
+- **Public Repository:** https://github.com/princejain756/khatacheck (Release Tag: `v2.0-stage4-final`)
 
-## Core Architecture and Governance Controls
+![KhataCheck Workbench](docs/screenshots/workbench.png)
+
+## Live Application Walkthrough
+
+| Workbench (Post-GST 2.0 `SCN-02`, Rs 3,120 Flag) | ISO/IEC 42001 Governance & Hash Ledger |
+| :-: | :-: |
+| ![Workbench SCN-02 GST 2.0](docs/screenshots/workbench_scn02_gst2.png) | ![Governance Ledger](docs/screenshots/governance.png) |
+
+| Benchmarks (500-Bill Suite + Live E2E) | Third-Party Clean & 50-Bill Held-Out Splits |
+| :-: | :-: |
+| ![Benchmarks Overview](docs/screenshots/benchmarks.png) | ![External Clean and Held-Out Benchmarks](docs/screenshots/benchmarks_external.png) |
+
+| Stratified Red-Team Sample Logs (Families A to F) | DPDP Consent (`dpdp-v1.3-2026-11`) & Erasure |
+| :-: | :-: |
+| ![Red-Team Benchmarks](docs/screenshots/benchmarks_redteam.png) | ![DPDP Privacy Controls](docs/screenshots/privacy.png) |
+
+## Core Architecture & Responsible AI Controls
 
 1. **Deterministic Verification Engine (`src/lib/`)**:
-   - `gst-rules.ts`: Validates 15-character supplier/buyer GSTIN tokens via Mod-36 checksums, verifies 60 CBIC HSN headings (`v1-demo-synthetic-oracle`), computes line-item and CGST/SGST/IGST tax in exact `BigInt` paise (`half-up` rounding), flags duplicate invoices and 80% Jaccard challan overlaps, and checks 90-day supplier median unit-rate drift (`>= 20%` jump with `>= 6` prior observations).
-   - `voice-parser.ts`: Reconciles English and Hinglish receiving voice notes (for example *"20 peti likha hai par 18 hi aayi"*, Devanagari digits, negation guards) against supplier line items.
-   - `prompt-guard.ts`: Quarantines untrusted OCR and voice notes across 6 injection families (`PG-A` through `PG-F`) plus bounded base64/hex decoding before deterministic math executes.
-   - `dpdp-privacy.ts`: Masks mobile numbers, emails, PAN, Aadhaar, and UPI handles before model egress while preserving 15-character supplier GSTIN tokens, paired with bilingual English/Hindi notice (`dpdp-v1.2-2026-11`), 30-day raw-media expiry plan (Days 61 to 90 rollout; demo runs in memory), and `/privacy` / `/delete-data` erasure controls.
-   - `governance-ledger.ts`: Append-only SHA-256 hash-chained audit ledger (`data/audit-ledger.jsonl`), copy-only tamper simulator, Automation Bias Monitor (`n >= 50` gate, alerts if approval > 95% and `0 <= median dwell < 3s`, including `0 ms` instant approvals), 5-Gate Lifecycle sign-off matrix, and TallyPrime XML **Sandbox Profile** export.
-   - **Stage 4 Demo Boundary**: The deployed web routes and API endpoints run unauthenticated inside an isolated synthetic single-tenant sandbox (`store-ganesh-blr-01`) with zero live merchant records; production multi-tenant store auth and per-store credentialing are scoped for post-pilot rollout.
+   - **Date-Effective GST 2.0 Rules (`gst-rules.ts`)**: `RULE_BUNDLE_VERSION = "2026.11.v2-gst2-date-effective"` selects `HSN_SCHEDULE_60_V1` (`effectiveFrom: 2017-07-01` to `2025-09-21`, keeping legacy `SCN-01` intact) vs `HSN_SCHEDULE_60_V2_GST2` (`effectiveFrom: 2025-09-22`, CBIC Notification `09/2025-CT(Rate)` moving FMCG and pharma headings to `5%` and splitting apparel at `Rs 2,500`, removing the `12%` slab). Off-schedule HSN codes trigger `hsnUnverified` and `GST-RATE-NOT-A-SLAB` validation; HSN and line arithmetic run non-maskingly via `secondaryFaults[]`, and supplier state is checked against validated GSTIN prefixes (`37 + 3` codes, format + Mod-36 checksum validation).
+   - **Clarity & Local OCR (`image-clarity.ts`, `ocr-extractor.ts`, `upload-analyzer.ts`)**: Fail-closed Python `python3 -I` Pillow `3x3` Laplacian variance (`< 85` abstains; `formats=["PNG","JPEG","WEBP"]`, magic-byte check) feeds local `tesseract` CLI (PSM 6, `tesseract.js` fallback), deterministic layout parsing, and optional scrubbed-text structuring (`qwen/qwen3.8-27b`, verified on Groq `/v1/models` on `23 Nov 2026`; forced to human review with zero `BigInt` total overrides).
+   - **Voice Reconciliation (`voice-parser.ts`)**: Reconciles English and Hinglish shortage/rate notes (`whisper-large-v3-turbo`) with Devanagari digits, unit aliases (`kg`, `g`, `l`, `ml`, `bag`, `pkt`, `box`, `strip`, `ctn`, `case`, `nag`, `doz`), negation guards, prompt-guard quarantine, and `unmatched_manual` review routing.
+   - **Adversarial & DPDP Controls (`prompt-guard.ts`, `dpdp-privacy.ts`)**: Screens 6 injection families (`PG-A` to `PG-F`) plus bounded base64/base64url/hex decoding and default-ignorable strip with `64 KiB` regex guards. Always forces server-side PII scrubbing (`0` / `+91` phones, emails, PAN, Aadhaar-like numbers, UPI) before `qwen/qwen3.8-27b` egress and disk storage while preserving statutory 15-character GSTINs (`DPDP s.3(c)(ii)` note on proprietor GSTINs embedding business PAN). Discloses raw voice audio transfer to Groq Whisper, interactive consent (`dpdp-v1.3-2026-11`), DPDP ss. 11 to 14 rights (`access`, `correction`, `erasure`, `grievance redressal`, `nomination`), and contact `princejain756@gmail.com`.
+   - **Governance Ledger, Rate Limits & Tally XML (`governance-ledger.ts`, `rate-limit.ts`)**: Tamper-evident unkeyed SHA-256 chain (`SCN-01`..`SCN-04`), server verdict gating (`humanApprovalAllowed` + latest-decision-wins), Automation Bias Monitor (`n >= 50`, `> 95%` approval, `0 <= median dwell < 3s`), per-IP token buckets, audio/image HTTP `415` magic-byte checks, consent-withdrawal preservation of 4 genesis rows, CSV formula neutralization, and balanced `0n`-sum Tally Purchase XML (`Round Off` + symmetric `CGST=SGST`, label `Schema-Validated XML Export (Not Tally-Import Verified)`).
+   - **Stage 4 Demo Boundary**: Unauthenticated single-tenant sandbox (`store-ganesh-blr-01`); multi-tenant store auth, scheduled 30-day raw-media auto-purge, Kannada/Tamil UI notices, and real-owner Gate 4 sign-off remain pre-pilot backlog before Gate 5.
 
-## Executed Synthetic Benchmark Results (`KC-BENCH-1795371589353`, Seed `1263026516`)
+## Provenance & Commit Ledger
 
-All quantitative accuracy and security metrics below come from our local seeded synthetic benchmark suite (`npm run benchmark`):
+| Stage | Commit / Tag | Scope & Verified Artifacts |
+| :- | :- | :- |
+| Baseline Freeze (V1) | `c3448909` (`a0955eb2` live code) | `KC-BENCH-1795371589353`, `KC-E2E-1795371646383`, `KC-EXT-1795371735107` (`19/19` unit tests) |
+| Hardened Code Freeze (V2) | `68995703` (`6899570`) | Date-effective GST 2.0, SCN-01 upload leak fix, server verdict/export gates, rate/budget guards, DPDP v1.3 (`22/22` unit tests) |
+| Live V2 & Held-Out Runs | `8adcc2de` (`8adcc2d`) | Additive `KC-BENCH-V2-1795385433456`, `KC-E2E-V2-1795385498833`, `KC-EXT-DEV-1795385623952`, `KC-EXT-HELDOUT-1795385812602` |
+| Final Stage 4 Release | `v2.0-stage4-final` (`HEAD`) | MIT `LICENSE`, updated `README.md` with CC BY 4.0 attribution and live screenshots synced to VPS `/api/health` |
 
-- **Dataset**: 500 synthetic bills (220 clean, 240 substantive faults across 6 categories, 40 low-clarity abstentions) plus 50 adversarial prompt-injection/exfiltration cases and 50 clean controls under `Synthetic Oracle v1 (Demo Fixture Scope)`.
-- **Substantive Detection**: F1 `99.4%` (`[98.5, 100]` 95% bootstrap CI), Precision `100%` (`[98.4, 100]` 95% Wilson CI), Recall `98.8%` (`[96.4, 99.6]` 95% Wilson CI), `237 TP / 0 FP / 3 FN`.
-- **Clean Bill & Clarity Gates**: Clean false-positive rate `0%`, Clarity abstentions `40 / 40`, Deterministic BigInt math accuracy `100%` (`460 / 460`).
-- **5-Subgroup Fairness Launch Gate (`<= 5.0%` rule)**: Macro mean F1 `99.4%`, max F1 gap below mean `1.5%`, max recall gap below mean `2.9%` (`handwritten_challan` stratum).
-- **Red-Team Resilience**: `50 / 50` blocked/isolated, `50 / 50` tax integrity unchanged, `50 / 50` zero PII leaks.
-- **Latency & Pilot Status**: In-process deterministic compute across `2,500` runs (`5` passes): `p50 = 0.022 ms`, `p95 = 0.063 ms`, `max = 0.469 ms`. Manual kirana reconciliation baseline runs `12 to 25 min` active time per bill plus `7 to 30 days` GST filing lag. The registered 10-store, 4-week Bengaluru shadow pilot is currently `NOT_RUN`, with `t0 -> t_flag` telemetry instrumented and ready for launch Gate 5 sign-off.
+## Quantitative Benchmark Results
 
-## Executed Live E2E OCR + ASR Lab Study (`KC-E2E-1795371646383`)
+All baseline (`V1`) and additive (`V2` / held-out) JSON payloads are served from `GET /api/benchmarks` and pinned identically in `src/data/` and NeuraViz Stage 4 deliverables:
 
-Measured live via HTTP round-trips against `https://khatacheck.prince.sh` (`npm run benchmark:e2e`, code commit `a0955eb2b654c3535fa45ac4505b15a3b6f72ae4`):
+1. **500-Bill Synthetic Rule-Core Suite (`KC-BENCH-1795371589353` V1 & `KC-BENCH-V2-1795385433456` V2, Seed `1263026516`)**:
+   - Detection (both V1 & V2): `99.4%` F1 (`[98.5, 100]` bootstrap CI), `100%` Precision (`[98.4, 100]`), `98.8%` Recall (`[96.4, 99.6]`, `237 TP / 0 FP / 3 FN` in `voice_shortage`), `0%` Clean FPR (`0/220`), `40/40` blur abstentions, `460/460` math exact, `50/50` red-team guarded & canary-scrubbed (`allGatesPassed: true`), max fairness gap across fixture tags `1.5 pp F1 / 2.9 pp Recall` (`<= 5.0 pp`).
+   - In-process rule compute (`2,500` runs, excluding IO/OCR/ASR): `p50 = 0.022 ms / p95 = 0.063 ms / max = 0.469 ms` (V1) and `p50 = 0.038 ms / p95 = 0.099 ms / max = 0.605 ms` (V2).
 
-- **19 Bill Images (`15` crisp generated + `1` printed Scenario 1 photo + `3` blurred `<85` controls)**: Clarity pass `100%` (`16/16`), blurry abstentions `3/3` (`100%`), line-count recall `94.6%` (`53/56`), declared grand totals `100%` (`16/16`), supplier GSTIN exact match `93.8%` (`15/16`, no check-char mutation), exact fault category-set match `94.7%` (`18/19`).
-- **Image Latency (`nearestRankQuantile`)**: All-19 `/api/analyze` API round-trip `p50 = 1642.2 ms`, `p95 = 3801 ms`, `max = 3801 ms`; server Pillow clarity + Tesseract CLI `p50 = 1429.4 ms`, `p95 = 2805.3 ms`, `max = 2805.3 ms`.
-- **5 Hinglish Audio Clips (`whisper-large-v3-turbo`)**: Shortage/rate recall `100%` (`4/4`), negation control `Pass`, DPDP PII redaction `Pass` across mobile and spoken email clips (`[MOBILE_REDACTED]` and `[EMAIL_REDACTED]`), ASR `p50 = 215.2 ms` (`p95 = 231 ms`), full voice E2E `p50 = 507.2 ms` (`p95 = 968.1 ms`). 10-store Bengaluru field pilot remains `NOT_RUN`.
+2. **Live HTTPS E2E OCR & Whisper Study (`KC-E2E-1795371646383` V1 & `KC-E2E-V2-1795385498833` V2)**:
+   - Tested over HTTPS against `khatacheck.prince.sh` across `19` bill images (`15` crisp generated PNGs + `1` phone photo of printed Scenario 1 synthetic bill + `3` blurred `< 85` controls) + `5` ElevenLabs TTS audio clips (`whisper-large-v3-turbo`).
+   - **V1 Baseline (`a0955eb2`)**: `100%` (`16/16`) clarity pass, `100%` (`3/3`) blur abstain, `94.6%` (`53/56`) line-count recall (`46/46` crisp, `7/10` photo), `100%` (`16/16`) grand totals, `93.8%` (`15/16`) GSTIN (`E2E-IMG-06` `O/0` clean FP), `94.7%` (`18/19`) exact category-set match; all-19 `/api/analyze` `p50 = 1,642.2 ms / p95 = 3,801.0 ms (n=19 max)`, 16-OCR API `p50 = 1,715.5 ms`, server clarity+OCR `p50 = 1,429.4 ms / p95 = 2,805.3 ms`; `5` audio clips `100%` (`4/4`) shortage/rate recall, `0` negation FP, `2/2` PII scrub, ASR `p50 = 215.2 ms`, voice E2E `p50 = 507.2 ms / p95 = 968.1 ms`.
+   - **V2 Rerun (`6899570`)**: `100%` (`16/16`) clarity, `3/3` blur abstain, `100%` (`16/16`) grand totals, `94.6%` line recall, `93.8%` GSTIN, API `p50 = 2,175.1 ms / p95 = 4,607.0 ms` (paced), `4/4` audio recall (`asr p50 = 221.1 ms`, `e2e p50 = 5,264.5 ms`); exact match moved to `63.2%` (`12/19`) because `4` pre-Sep-2025 PNGs print `12%/18%` slabs now flagged under GST 2.0, plus `2` non-masking multi-faults and `E2E-IMG-16` OCR arithmetic variance (`usedLlmStructurer: false`).
 
-## Independent Third-Party Benchmark (`KC-EXT-1795371735107`)
+3. **Third-Party Dataset Benchmarks (`Divya52/indian-gst-invoices`, CC BY 4.0)**:
+   - **Clean Headline First (`KC-EXT-1795371735107`, 49 sampled bills: 25 clean + 24 attacks)**: On the `25` clean bills (`15` synthetic + `10` regional), grand totals matched **`72.0%` (`18/25`)**: clean digital `100%` (`6/6` GT, `6/6` GSTIN, `100%` lines, `0%` arith FP), scan `100%` (`6/6` GT, `3/6` `50%` GSTIN, `96.4%` lines, `33.3%` arith FP), and noisy mobile photo **`46.2%` (`6/13` GT, `46.2%` GSTIN, `50.0%` lines, `53.8%` arith FP; `0/13` fully defect-free -> `53.8 pp` end-to-end capture gap vs `<= 5 pp` synthetic fixture tag parity)**, with `0/25` prompt-guard FP and `9/25` (`36%`) clean arithmetic FP vs printed math (`API p50 = 1,367.8 ms / p95 = 2,016.0 ms` overall).
+   - **24 Visual Prompt-Injection Attacks (reported separately)**: `24/24` (`100%`) `grandTotalPreserved`, `22/24` (`91.7%`) `attackDefeated`, `12/24` (`50%`) guard detect (`visible_note` `8/8`, `tiny` `4/8`, `low_contrast` `0/8` not ingested by OCR as an unverified tradeoff); both defeated misses occurred on `no_review` (`inj_007` tiny, `inj_008` low-contrast). Combined 49-bill blend is `85.7%` (`42/49`). Dev post-hardening rerun `KC-EXT-DEV-1795385623952` held `72.0%` (`18/25`) clean, `0/25` guard FP, `8/25` (`32%`) clean arith FP, `24/24` attack GT preserved (`21/24` defeated, `inj_003/007/008`).
+   - **50-Bill Disjoint Held-Out Evaluation (`KC-EXT-HELDOUT-1795385812602`, `seed = 20261123`)**: Drawn strictly excluding baseline indices and `idx < 5` diagnostic offsets (`30` synthetic + `20` regional): **`76.0%` (`38/50`) clean grand totals** (`16/16` `100%` clean digital, `15/15` `100%` scan, `7/19` `36.8%` noisy photo; `23/30` `76.7%` synthetic, `15/20` `75.0%` regional), `76.2%` (`141/185`) lines, `64.0%` (`32/50`) GSTIN, **`0/50` clean prompt-guard FP**, `38%` (`19/50`) clean arith FP, `API p50 = 1,317.5 ms / p95 = 2,939.3 ms`.
 
-Evaluated live against `https://khatacheck.prince.sh/api/analyze` (`npm run benchmark:external`, code commit `a0955eb2b654c3535fa45ac4505b15a3b6f72ae4`) using `49` sampled invoices from `Divya52/indian-gst-invoices` (CC BY 4.0, dataset commit `fece40b9a96ac3949934fc05c714853a5283d730`: `15` evenly spaced synthetic rows, `10` evenly spaced regional rows, plus all `24` visual injection attacks `inj_000` to `inj_023`), using general layout and guard upgrades informed by an initial 5-row diagnostic probe with zero per-row hardcoding:
+**Field Pilot Status:** The 10-store, 4-week Bengaluru shadow pilot is **Not Run (Gate 5 Hold)**, and Stage 3's `12 to 25 min/bill` manual reconciliation baseline remains an **unmeasured operating assumption** until real-store timing runs.
 
-- **Overall (`49` sampled bills)**: Clarity pass `100%` (`49/49`), Grand Total exact `85.7%` (`42/49`), Supplier GSTIN exact `77.6%` (`38/49`), line-count recall `81.7%` (`143/175`), API round-trip `p50 = 1367.8 ms` (`p95 = 2016 ms`, `max = 3798.6 ms`), server OCR `p50 = 1114.8 ms` (`p95 = 1421.5 ms`, `max = 3549.7 ms`).
-- **Clean Sampled Bills (`25` bills: `15` synthetic + `10` regional)**: `0/25` (`0%`) prompt-guard false positives, `72.0%` (`18/25`) grand total exact (`10/15` synthetic `66.7%`, `8/10` regional `80.0%`), `60.0%` (`15/25`) GSTIN, `74.3%` (`78/105`) line recall, `36.0%` (`9/25`) arithmetic FP vs printed math. By degradation level: clean digital (`6/6`) `100%` grand total / `100%` GSTIN / `100%` line recall / `0%` arithmetic FP; scan (`6/6`) `100%` grand total / `96.4%` line recall / `33.3%` arithmetic FP; noisy photo (`13` bills) `46.2%` grand total / `50.0%` line recall / `53.8%` arithmetic FP.
-- **24 Visual Prompt-Injection Attacks**: `100%` (`24/24`) grand total preserved (`grandTotalPreserved = 24/24`), `91.7%` (`22/24`) attack defeated, `50.0%` (`12/24`) prompt-guard detection (`visible_note` `8/8` `100%`, `tiny` `4/8` `50%`, `low_contrast` `0/8` `0%`; deterministic `BigInt` math isolates raw bill pixels from LLMs).
+## Third-Party Dataset Attribution (CC BY 4.0)
 
-## Prerequisites & Reproduction
+External evaluation images originate from **[Divya52/indian-gst-invoices](https://huggingface.co/datasets/Divya52/indian-gst-invoices)** (commit `fece40b9a96ac3949934fc05c714853a5283d730`), licensed under **Creative Commons Attribution 4.0 International (CC BY 4.0)**.
 
-- **OCR Engines (`tesseract` CLI + `tesseract.js` Fallback)**: When native `tesseract` CLI is installed (`brew install tesseract` on macOS or `apt-get install tesseract-ocr` on Linux), KhataCheck runs native CLI speed OCR; otherwise it falls back cleanly to the bundled `tesseract.js` WASM worker so offline `npm test` (`19/19` passing) runs without native `tesseract`.
-- **Clarity Gate (`Pillow`) & Voice ASR (`GROQ_API_KEY`)**: `python3` with `Pillow` (`PIL`) computes 3x3 Laplacian variance clarity scoring (`<85` abstention gate). Set `GROQ_API_KEY` in `.env.local` (gitignored) to enable live `POST /api/transcribe` (`whisper-large-v3-turbo`) and optional scrubbed-text structuring (`qwen/qwen3.8-27b`). If unset, `POST /api/transcribe` returns HTTP `503`.
+- **Exact Modifications & Usage by KhataCheck**:
+  1. Evaluated `24` visual prompt-injection variant images from the repository (`inj_000..inj_023` generated across `visible_note`, `tiny`, and `low_contrast` overlay styles) alongside sampled clean synthetic and regional images without overwriting upstream dataset files.
+  2. Built stratified sampling benchmark scripts (`scripts/run_external_hf_benchmark.mjs`) selecting deterministic `49`-bill dev (`15` synthetic + `10` regional + `24` injections) and strictly disjoint `50`-bill held-out (`seed=20261123`, excluding `idx < 5` probe offsets including `syn_0_00000`, `syn_0_00012`, `inj_000`, `inj_005`, `reg_003` and all baseline indices) slices, recording anonymized aggregate telemetry only (zero raw invoice images persisted).
+
+## License & Reproduction
+
+Code in this repository is licensed under the **MIT License** ([LICENSE](LICENSE)).
 
 ```bash
 npm ci
-npm test
-npm run typecheck
-npm run lint
-npm run benchmark
-npm run build
-npm start
-```
+npm test                 # 22/22 unit tests pass
+npm run typecheck && npm run lint
+npm run benchmark        # Synthetic 500-bill + 50-attack suite (v2)
+npm run build && npm start
 
-To run the live 19-image + 5-audio E2E suite or the 49-invoice external `Divya52/indian-gst-invoices` (CC BY 4.0) benchmark against a running server:
-
-```bash
+# Live HTTPS OCR/ASR & external Divya52 benchmarks against a running server:
 KHATACHECK_BASE_URL=http://127.0.0.1:3000 npm run benchmark:e2e
 KHATACHECK_BASE_URL=http://127.0.0.1:3000 npm run benchmark:external
 ```
