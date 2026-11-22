@@ -97,16 +97,14 @@ async function runImageCase(baseUrl, item) {
   const extractedLines = Array.isArray(invoice.lines) ? invoice.lines.length : 0;
   const abstainedClarity = Boolean(verification.abstainedClarity);
 
-  let faultDetectionPassed = false;
   const expectedSet = [...new Set(item.expectedFaultCategories)].sort();
   const detectedSet = [...new Set(detectedCategories)].sort();
-  if (!item.expectedClarityPass) {
-    faultDetectionPassed = abstainedClarity && detectedSet.includes("clarity_abstain");
-  } else {
-    faultDetectionPassed =
-      expectedSet.length === detectedSet.length &&
-      expectedSet.every((c, idx) => detectedSet[idx] === c);
-  }
+  const categoriesExactMatch =
+    expectedSet.length === detectedSet.length &&
+    expectedSet.every((c, idx) => detectedSet[idx] === c);
+  const faultDetectionPassed = item.expectedClarityPass
+    ? categoriesExactMatch
+    : abstainedClarity && categoriesExactMatch;
 
   const abstentionPassed = item.expectedClarityPass
     ? !abstainedClarity && Number(ocrMeta.clarityScore ?? invoice.clarityScore ?? 0) >= 85

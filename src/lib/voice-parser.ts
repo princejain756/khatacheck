@@ -422,30 +422,64 @@ export function parseVoiceRemarks(
           }
         };
 
-        const markBackwardDenom = (endIdx: number) => {
-          if (endIdx < 0) return;
+        const markBackwardDenom = (endIdx: number): boolean => {
+          if (endIdx < 0) return false;
           const prevTok = cleanToken(tokens[endIdx]);
           const prevPrevTok = cleanToken(tokens[endIdx - 1]);
           const attPrev = /^(\d+(?:\.\d+)?)([a-z]+)$/.exec(prevTok);
           if (attPrev && UNIT_WORDS.has(attPrev[2])) {
             excludedIdx.add(endIdx);
-          } else if (
+            return true;
+          }
+          if (
             prevTok &&
             UNIT_WORDS.has(prevTok) &&
             (parseQtyToken(prevPrevTok) !== null || isZeroQtyToken(prevPrevTok))
           ) {
             excludedIdx.add(endIdx);
             excludedIdx.add(endIdx - 1);
-          } else if (parseQtyToken(prevTok) !== null || isZeroQtyToken(prevTok)) {
-            excludedIdx.add(endIdx);
+            return true;
           }
+          if (parseQtyToken(prevTok) !== null || isZeroQtyToken(prevTok)) {
+            excludedIdx.add(endIdx);
+            return true;
+          }
+          return false;
+        };
+
+        const forwardStartsShortageClaim = (startIdx: number): boolean => {
+          let cursor = startIdx;
+          const skipWord = cleanToken(tokens[cursor]);
+          if (skipWord === "for" || skipWord === "at") {
+            cursor += 1;
+          }
+          const qTok = cleanToken(tokens[cursor]);
+          let afterIdx = -1;
+          const att = /^(\d+(?:\.\d+)?)([a-z]+)$/.exec(qTok);
+          if (att && UNIT_WORDS.has(att[2])) {
+            afterIdx = cursor + 1;
+          } else if (parseQtyToken(qTok) !== null || isZeroQtyToken(qTok)) {
+            const uTok = cleanToken(tokens[cursor + 1]);
+            afterIdx = uTok && UNIT_WORDS.has(uTok) ? cursor + 2 : cursor + 1;
+          }
+          if (afterIdx < 0) return false;
+          const nextTok = cleanToken(tokens[afterIdx]);
+          const linkNext = /^(?:is|are|was|were|got|had)$/.test(nextTok)
+            ? cleanToken(tokens[afterIdx + 1])
+            : "";
+          return Boolean(
+            (nextTok && SHORTAGE_CUES.test(nextTok)) ||
+              (linkNext && SHORTAGE_CUES.test(linkNext))
+          );
         };
 
         if (w === "out" && wNext === "of") {
           markForwardDenom(i + 2);
         } else if (w === "billed" || w === "invoiced") {
-          markForwardDenom(i + 1);
-          markBackwardDenom(i - 1);
+          const markedBack = markBackwardDenom(i - 1);
+          if (!markedBack && !forwardStartsShortageClaim(i + 1)) {
+            markForwardDenom(i + 1);
+          }
         } else if ((w === "me" || w === "mein") && wNext === "se") {
           markBackwardDenom(i - 1);
         }

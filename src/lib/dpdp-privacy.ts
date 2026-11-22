@@ -4,13 +4,13 @@ export interface ScrubResult {
   redactedKinds: string[];
 }
 
-const REGEX_GSTIN = /\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b/g;
+const REGEX_GSTIN = /\b[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z][Zz][0-9A-Za-z]\b/g;
 const REGEX_MOBILE = /(?:\+91[\s-]?|0)?\b[6-9]\d{4}[\s-]?\d{5}\b/g;
 const REGEX_AADHAAR = /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g;
-const REGEX_PAN = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g;
+const REGEX_PAN = /\b[A-Za-z]{5}[0-9]{4}[A-Za-z]\b/g;
 const REGEX_EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const REGEX_SPOKEN_EMAIL =
-  /\b[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}(?:\s+(?:dot|underscore)\s+[A-Za-z0-9._%+-]{1,32}){0,4}\s+at\s+(?:[A-Za-z0-9-]*[A-Za-z][A-Za-z0-9-]*)(?:\.[A-Za-z0-9-]{1,63}|\s+dot\s+[A-Za-z0-9-]{1,63}){0,3}(?:\.[a-z]{2,15}|\s+dot\s+[a-z]{2,15})\b/gi;
+  /\b[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}(?:(?:\s+(?:dot|underscore)\s+|\s+\.\s*)[A-Za-z0-9._%+-]{1,32}){0,4}\s+at\s+(?:[A-Za-z0-9-]*[A-Za-z][A-Za-z0-9-]*)(?:\.[A-Za-z0-9-]{1,63}|\s+\.\s*[A-Za-z0-9-]{1,63}|\s+dot\s+[A-Za-z0-9-]{1,63}){0,3}(?:\.[A-Za-z]{2,15}|\s+\.\s*[A-Za-z]{2,15}|\s+dot\s+[A-Za-z]{2,15})\b/gi;
 const REGEX_UPI = /\b[a-zA-Z0-9._-]{2,}@(?:okaxis|okicici|okhdfcbank|oksbi|ybl|paytm|ibl|axl|upi)\b/gi;
 
 /**

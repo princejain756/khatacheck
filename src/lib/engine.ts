@@ -21,7 +21,10 @@ export function computeBillSha256(invoice: InvoiceInput): string {
   const billCanonical = JSON.stringify({
     id: invoice.id,
     tenantId: invoice.tenantId,
+    vendorName: invoice.vendorName,
     vendorGstin: invoice.vendorGstin,
+    buyerName: invoice.buyerName,
+    buyerGstin: invoice.buyerGstin,
     supplierStateCode: invoice.supplierStateCode,
     placeOfSupplyStateCode: invoice.placeOfSupplyStateCode,
     invoiceNumber: invoice.invoiceNumber,

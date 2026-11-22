@@ -211,6 +211,7 @@ function buildInvoiceLine(params: {
   discountPaise: bigint;
   declaredTaxablePaise?: bigint;
   gstPct?: number;
+  explicitSplitBps?: { cgstBps: number; sgstBps: number; igstBps: number };
   declaredLineTotalPaise?: bigint;
   isInterstate: boolean;
   ocrConfidence: number;
@@ -233,7 +234,7 @@ function buildInvoiceLine(params: {
     }
   }
 
-  const bps = splitGstToBps(gstPct, params.isInterstate);
+  const bps = params.explicitSplitBps ?? splitGstToBps(gstPct, params.isInterstate);
   const cgstPaise = halfUpDiv(taxable * BigInt(bps.cgstBps), 10000n);
   const sgstPaise = halfUpDiv(taxable * BigInt(bps.sgstBps), 10000n);
   const igstPaise = halfUpDiv(taxable * BigInt(bps.igstBps), 10000n);
@@ -362,6 +363,8 @@ function isHsnToken(tok: string): string | null {
   return null;
 }
 
+type TaxColComponent = "cgst" | "sgst" | "igst";
+
 interface ParsedRowDraft {
   description: string;
   hsnCode: string;
@@ -370,6 +373,7 @@ interface ParsedRowDraft {
   unitRatePaise: bigint;
   declaredTaxablePaise?: bigint;
   gstPct?: number;
+  explicitSplitBps?: { cgstBps: number; sgstBps: number; igstBps: number };
   declaredLineTotalPaise?: bigint;
   confidence: number;
 }
@@ -410,7 +414,8 @@ function reconcileMissingDecimals(
 
 function parseRowTokens(
   tokens: string[],
-  pageConfidence: number
+  pageConfidence: number,
+  taxColOrder: readonly TaxColComponent[] = []
 ): ParsedRowDraft | null {
   if (tokens.length < 4) return null;
 
@@ -537,11 +542,29 @@ function parseRowTokens(
   if (rateRupees <= 0) return null;
 
   let gstPct: number | undefined;
-  if (pctValues.length === 1) {
+  let explicitSplitBps: { cgstBps: number; sgstBps: number; igstBps: number } | undefined;
+  if (pctValues.length > 0 && pctValues.length === taxColOrder.length) {
+    let cgstPct = 0;
+    let sgstPct = 0;
+    let igstPct = 0;
+    for (let idx = 0; idx < taxColOrder.length; idx += 1) {
+      const col = taxColOrder[idx];
+      const val = pctValues[idx];
+      if (col === "cgst") cgstPct += val;
+      else if (col === "sgst") sgstPct += val;
+      else if (col === "igst") igstPct += val;
+    }
+    explicitSplitBps = {
+      cgstBps: Math.max(0, Math.round(cgstPct * 100)),
+      sgstBps: Math.max(0, Math.round(sgstPct * 100)),
+      igstBps: Math.max(0, Math.round(igstPct * 100)),
+    };
+    gstPct = Math.round((cgstPct + sgstPct + igstPct) * 100) / 100;
+  } else if (pctValues.length === 1) {
     gstPct = pctValues[0];
   } else if (pctValues.length >= 2) {
-    // CGST% + SGST% columns
-    gstPct = Math.round((pctValues[0] + pctValues[1]) * 100) / 100;
+    // Sum multiple tax% columns when header column order is unavailable
+    gstPct = Math.round(pctValues.reduce((a, b) => a + b, 0) * 100) / 100;
   }
 
   let declaredLineTotalPaise: bigint | undefined;
@@ -586,6 +609,7 @@ function parseRowTokens(
     unitRatePaise,
     declaredTaxablePaise,
     gstPct,
+    explicitSplitBps,
     declaredLineTotalPaise,
     confidence,
   };
@@ -684,40 +708,50 @@ export function extractGstins(lines: string[]): { vendorGstin: string; buyerGsti
   const buyerCandidates: string[] = [];
 
   for (const raw of lines) {
-    const upper = raw.toUpperCase();
-    if (/\b(?:BUYER|BILL\s*TO|BILLED\s*TO|SHIP\s*TO|RECIPIENT|CUSTOMER)\b/.test(upper)) {
-      section = "buyer";
-    } else if (/\b(?:SUPPLIER|SELLER|VENDOR)\b|\bFROM\b/.test(upper)) {
-      section = "supplier";
-    }
+    const segments = raw
+      .split(/[|;]+/)
+      .flatMap((part) =>
+        part.split(/(?=\b(?:BUYER|BILL\s*TO|BILLED\s*TO|SHIP\s*TO|RECIPIENT|CUSTOMER|SUPPLIER|SELLER|VENDOR)\b)/i)
+      )
+      .map((s) => s.trim())
+      .filter(Boolean);
 
-    const foundInLine: string[] = [];
-    for (const m of upper.matchAll(strictRe)) {
-      const normalized = repairOcrGstinToken(m[1]) || m[1];
-      if (!foundInLine.includes(normalized)) {
-        foundInLine.push(normalized);
+    for (const seg of segments) {
+      const upper = seg.toUpperCase();
+      if (/\b(?:BUYER|BILL\s*TO|BILLED\s*TO|SHIP\s*TO|RECIPIENT|CUSTOMER)\b/.test(upper)) {
+        section = "buyer";
+      } else if (/\b(?:SUPPLIER|SELLER|VENDOR)\b|\bFROM\b/.test(upper)) {
+        section = "supplier";
       }
-    }
-    if (foundInLine.length === 0) {
-      const lm = labelRe.exec(upper);
-      if (lm) {
-        const repaired = repairOcrGstinToken(lm[1]);
-        if (repaired.length === 15) {
-          foundInLine.push(repaired);
+
+      const foundInLine: string[] = [];
+      for (const m of upper.matchAll(strictRe)) {
+        const normalized = repairOcrGstinToken(m[1]) || m[1];
+        if (!foundInLine.includes(normalized)) {
+          foundInLine.push(normalized);
         }
       }
-    }
-
-    for (const gstin of foundInLine) {
-      if (section === "buyer") {
-        if (!buyerCandidates.includes(gstin)) buyerCandidates.push(gstin);
-        if (!buyerGstin && gstin !== vendorGstin) {
-          buyerGstin = gstin;
+      if (foundInLine.length === 0) {
+        const lm = labelRe.exec(upper);
+        if (lm) {
+          const repaired = repairOcrGstinToken(lm[1]);
+          if (repaired.length === 15) {
+            foundInLine.push(repaired);
+          }
         }
-      } else {
-        if (!supplierCandidates.includes(gstin)) supplierCandidates.push(gstin);
-        if (!vendorGstin) {
-          vendorGstin = gstin;
+      }
+
+      for (const gstin of foundInLine) {
+        if (section === "buyer") {
+          if (!buyerCandidates.includes(gstin)) buyerCandidates.push(gstin);
+          if (!buyerGstin && gstin !== vendorGstin) {
+            buyerGstin = gstin;
+          }
+        } else {
+          if (!supplierCandidates.includes(gstin)) supplierCandidates.push(gstin);
+          if (!vendorGstin) {
+            vendorGstin = gstin;
+          }
         }
       }
     }
@@ -930,13 +964,29 @@ export function parseOcrInvoiceText(
     useInterstateTaxSplit = true;
   }
 
+  const headerRow = rawLines.find(
+    (ln) => /(?:description|particulars|hsn|taxable|rate)/i.test(ln) && /\b(?:cgst|sgst|igst)\b/i.test(ln)
+  );
+  const taxColOrder: TaxColComponent[] = [];
+  if (headerRow) {
+    const posPairs: Array<{ col: TaxColComponent; idx: number }> = [];
+    const cgIdx = headerRow.search(/\bcgst(?:\b|%)/i);
+    if (cgIdx >= 0) posPairs.push({ col: "cgst", idx: cgIdx });
+    const sgIdx = headerRow.search(/\bsgst(?:\b|%)/i);
+    if (sgIdx >= 0) posPairs.push({ col: "sgst", idx: sgIdx });
+    const igIdx = headerRow.search(/\bigst(?:\b|%)/i);
+    if (igIdx >= 0) posPairs.push({ col: "igst", idx: igIdx });
+    posPairs.sort((a, b) => a.idx - b.idx);
+    for (const p of posPairs) taxColOrder.push(p.col);
+  }
+
   const pageConf = options?.pageConfidence ?? 90;
 
   const lines: InvoiceLineInput[] = [];
   for (const rawRow of rawLines) {
     if (SKIP_ROW_PATTERN.test(rawRow) || ADDRESS_NOISE_WORDS.test(rawRow)) continue;
     const tokens = tokenizeRowForParsing(rawRow, lines.length + 1);
-    const draft = parseRowTokens(tokens, pageConf);
+    const draft = parseRowTokens(tokens, pageConf, taxColOrder);
     if (!draft) continue;
 
     lines.push(
@@ -950,6 +1000,7 @@ export function parseOcrInvoiceText(
         discountPaise: 0n,
         declaredTaxablePaise: draft.declaredTaxablePaise,
         gstPct: draft.gstPct,
+        explicitSplitBps: draft.explicitSplitBps,
         declaredLineTotalPaise: draft.declaredLineTotalPaise,
         isInterstate: useInterstateTaxSplit,
         ocrConfidence: draft.confidence,
