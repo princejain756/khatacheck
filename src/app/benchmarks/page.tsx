@@ -6,22 +6,20 @@ import type { BenchmarkReport, E2eOcrAsrReport, ExternalHfReport } from "@/lib/t
 
 export const dynamic = "force-dynamic";
 
-function loadJsonOrNull<T>(relParts: string[]): T | null {
-  const filePath = path.join(process.cwd(), ...relParts);
-  if (fs.existsSync(filePath)) {
-    return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
-  }
-  return null;
-}
+const BENCHMARK_FILE = path.join(process.cwd(), "src", "data", "benchmark-results.json");
+const E2E_FILE = path.join(process.cwd(), "src", "data", "e2e-ocr-asr-results.json");
+const EXTERNAL_HF_FILE = path.join(process.cwd(), "src", "data", "external-hf-results.json");
 
-function loadInitialBenchmark(): BenchmarkReport {
-  return loadJsonOrNull<BenchmarkReport>(["src", "data", "benchmark-results.json"]) ?? runFullBenchmarkSuite({ writeDisk: false });
+function readJsonOrNull<T>(filePath: string): T | null {
+  if (!fs.existsSync(filePath)) return null;
+  return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
 }
 
 export default function BenchmarksPage() {
-  const report = loadInitialBenchmark();
-  const e2eReport = loadJsonOrNull<E2eOcrAsrReport>(["src", "data", "e2e-ocr-asr-results.json"]);
-  const externalHfReport = loadJsonOrNull<ExternalHfReport>(["src", "data", "external-hf-results.json"]);
+  const report =
+    readJsonOrNull<BenchmarkReport>(BENCHMARK_FILE) ?? runFullBenchmarkSuite({ writeDisk: false });
+  const e2eReport = readJsonOrNull<E2eOcrAsrReport>(E2E_FILE);
+  const externalHfReport = readJsonOrNull<ExternalHfReport>(EXTERNAL_HF_FILE);
   return (
     <BenchmarksClient
       initialReport={report}
