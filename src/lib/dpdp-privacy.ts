@@ -87,22 +87,22 @@ export const DPDP_CONSENT_NOTICE = {
   en: {
     title: "Data Processing & Privacy Notice (DPDP Act 2023)",
     purpose:
-      "KhataCheck analyzes supplier GST bills and receiving transcript notes solely to flag billing discrepancies, tax-slab mismatches, and rate creep (live audio ASR planned for Gate 5).",
+      "KhataCheck processes uploaded GST bills via local on-server Tesseract OCR and explicitly recorded or uploaded receiving voice notes via Groq Whisper ASR (whisper-large-v3-turbo) solely to flag billing discrepancies, tax-slab mismatches, and rate creep.",
     minimization:
-      "Optional server text scrubbing masks walk-in customer phone numbers, personal emails, PAN, Aadhaar-like numbers, and UPI handles while preserving GSTIN-shaped patterns.",
+      "Mandatory on-server DPDP regex scrubbing masks walk-in customer mobile numbers, personal emails, PAN, Aadhaar-like numbers, and UPI handles in OCR and ASR text prior to any optional qwen/qwen3.8-27b scrubbed-text structuring call, while preserving 15-character GSTIN tokens.",
     retention:
-      "30-day raw-media retention policy: Stage 4 web demo handles uploads in memory without disk storage; the automated 30-day expiry worker is scheduled in Days 61 to 90 controlled rollout.",
+      "30-day raw-media retention plan: Stage 4 web demo processes image and audio uploads in memory without disk persistence; the automated 30-day expiry worker is scheduled for the Days 61 to 90 controlled rollout. Free-text overrideReason entries are trimmed and stored unmasked in the audit ledger.",
     rights:
       "Export or clear the shared demo review ledger via /privacy (empty demo ledger reseeds 4 default records on next read).",
   },
   hi: {
     title: "डेटा प्रोसेसिंग और गोपनीयता सूचना (DPDP अधिनियम 2023)",
     purpose:
-      "KhataCheck सप्लायर GST बिल और रिसीविंग ट्रांसक्रिप्ट नोट्स की जांच केवल कम सामान, गलत टैक्स स्लैब और रेट अंतर पकड़ने के लिए करता है (लाइव ऑडियो ASR Gate 5 में प्रस्तावित है)।",
+      "KhataCheck अपलोड किए गए GST बिल (लोकल ऑन-सर्वर Tesseract OCR) और स्पष्ट रूप से रिकॉर्ड या अपलोड किए गए वॉइस नोट्स (Groq Whisper ASR) की जांच केवल कम सामान, गलत टैक्स स्लैब और रेट अंतर पकड़ने के लिए करता है।",
     minimization:
-      "वैकल्पिक सर्वर टेक्स्ट स्क्रबिंग ग्राहक के मोबाइल नंबर, ईमेल, PAN, आधार-जैसी संख्याएं और UPI आईडी हटाती है, जबकि GSTIN पैटर्न सुरक्षित रहते हैं।",
+      "किसी भी वैकल्पिक qwen/qwen3.8-27b स्क्रब्ड-टेक्स्ट स्ट्रक्चरिंग कॉल से पहले सर्वर पर ही DPDP रेगेक्स स्क्रबिंग ग्राहक के मोबाइल नंबर, ईमेल, PAN, आधार-जैसी संख्याएं और UPI आईडी मास्क करती है, जबकि 15-अंकीय GSTIN पैटर्न सुरक्षित रहते हैं।",
     retention:
-      "डेमो में कच्ची फाइलें डिस्क पर सेव नहीं होतीं; 30-दिन की स्वतः समाप्ति Days 61-90 रोलआउट में तय है, और आप /privacy से डेमो लेजर एक्सपोर्ट या क्लियर कर सकते हैं।",
+      "30-दिन की कच्ची मीडिया नीति: Stage 4 वेब डेमो इमेज और ऑडियो अपलोड मेमोरी में प्रोसेस करता है; स्वतः 30-दिन एक्सपायरी वर्कर Days 61 से 90 नियंत्रित रोलआउट के लिए तय है। फ्री-टेक्स्ट overrideReason ट्रिम होकर बिना मास्क के ऑडिट लेजर में सेव होता है।",
     rights:
       "आप कभी भी /privacy से साझा डेमो रिव्यू लेजर एक्सपोर्ट या क्लियर कर सकते हैं (खाली होने पर अगली रीड पर 4 डिफॉल्ट रिकॉर्ड रीसीड होते हैं)।",
   },

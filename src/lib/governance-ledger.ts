@@ -507,14 +507,14 @@ export const LIFECYCLE_GATES = [
     question: "Is AI needed and what is the risk tier?",
     status: "PASS",
     owner: "Prince Jain (Full-Stack Software Engineer)",
-    evidence: "Planned OCR/ASR restricted to extraction; Stage 4 demo runs seeded bills, text uploads & typed transcripts through deterministic BigInt math.",
+    evidence: "Laplacian clarity gate (<85 abstains), local Tesseract OCR + Groq Whisper ASR on explicit voice clips restricted to extraction; all rupees & GST math stay deterministic BigInt.",
   },
   {
     gate: "Gate 2 · Data & Privacy",
     question: "Is personal data lawful, minimized, and consented?",
     status: "PASS",
     owner: "Prince Jain (Full-Stack Software Engineer)",
-    evidence: "Optional server text scrubber for phone/PAN/UPI; English + Hindi notice; Days 61-90 30-day expiry plan; demo ledger clear via /privacy.",
+    evidence: "On-server DPDP PII scrubber masks OCR & ASR text prior to optional qwen/qwen3.8-27b structuring; English + Hindi notice; Days 61 to 90 30-day expiry plan; trimmed unmasked overrideReason; clear via /privacy.",
   },
   {
     gate: "Gate 3 · Build & Red-Team",
