@@ -252,11 +252,12 @@
       "expectedLineCount": 10,
       "expectedGrandTotalPaise": "3005700",
       "expectedFaultCategories": [
+        "invalid_gstin",
         "hsn_mismatch"
       ],
       "imagePath": "public/images/sample-kirana-bill.jpg",
       "captureProvenance": {
-        "description": "1086x1448 printed synthetic Scenario 1 photo on wood surface, EXIF stripped",
+        "description": "1086x1448 printed synthetic Scenario 1 photo on wood surface, EXIF stripped; literally prints invalid GSTIN 27ABRFS9223K1ZP (check digit P instead of F) plus HSN 0904 slab mismatch",
         "dimensions": "1086x1448",
         "bytes": 600305,
         "exifStripped": true,

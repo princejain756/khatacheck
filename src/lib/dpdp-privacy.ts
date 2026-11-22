@@ -10,7 +10,7 @@ const REGEX_AADHAAR = /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g;
 const REGEX_PAN = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g;
 const REGEX_EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const REGEX_SPOKEN_EMAIL =
-  /\b[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}(?:\s+(?:dot|underscore)\s+[A-Za-z0-9._%+-]{1,32}){0,4}\s+at\s+[A-Za-z0-9-]{1,63}(?:\s*(?:\.|dot)\s*[A-Za-z0-9-]{1,63}){0,3}\s*(?:\.|dot)\s*(?:com|in|org|net|co|edu|gov|io|ai|me|info|biz)(?:\s*(?:\.|dot)\s*[a-z]{2,4})?\b/gi;
+  /\b[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}(?:\s+(?:dot|underscore)\s+[A-Za-z0-9._%+-]{1,32}){0,4}\s+at\s+(?:[A-Za-z0-9-]*[A-Za-z][A-Za-z0-9-]*)(?:\.[A-Za-z0-9-]{1,63}|\s+dot\s+[A-Za-z0-9-]{1,63}){0,3}(?:\.[a-z]{2,15}|\s+dot\s+[a-z]{2,15})\b/gi;
 const REGEX_UPI = /\b[a-zA-Z0-9._-]{2,}@(?:okaxis|okicici|okhdfcbank|oksbi|ybl|paytm|ibl|axl|upi)\b/gi;
 
 /**

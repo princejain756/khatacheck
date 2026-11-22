@@ -1,20 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
+import { scrubPiiForModelEgress } from "@/lib/dpdp-privacy";
 import {
   LIFECYCLE_GATES,
+  STORE_TENANT_ID,
   appendLedgerDecision,
   computeAutomationBiasMonitor,
-  readLedgerEvents,
+  readLedgerWithIntegrity,
   seedDefaultLedger,
   verifyHashChain,
 } from "@/lib/governance-ledger";
 import type { CropBbox, ReviewDecision } from "@/lib/types";
 
 export async function GET() {
-  const events = readLedgerEvents();
+  const { events, verification } = readLedgerWithIntegrity();
   return NextResponse.json(
     {
       events,
-      verification: verifyHashChain(events),
+      verification,
       biasMonitor: computeAutomationBiasMonitor(events),
       gates: LIFECYCLE_GATES,
     },
@@ -73,17 +75,25 @@ export async function POST(req: NextRequest) {
           isSyntheticStress: true,
         });
       }
-      const events = readLedgerEvents();
+      const { events, verification } = readLedgerWithIntegrity();
       return NextResponse.json({
         events,
-        verification: verifyHashChain(events),
+        verification,
         biasMonitor: computeAutomationBiasMonitor(events),
         gates: LIFECYCLE_GATES,
       });
     }
 
+    const requestedTenant = body.tenantId !== undefined ? String(body.tenantId).trim() : "";
+    if (requestedTenant && requestedTenant !== STORE_TENANT_ID) {
+      return NextResponse.json(
+        { error: `Tenant ID mismatch: active store tenant is ${STORE_TENANT_ID}.` },
+        { status: 403 }
+      );
+    }
+
     const decision = body.decision ?? "approved_flag";
-    const overrideReason = String(body.overrideReason ?? "").trim();
+    const overrideReason = scrubPiiForModelEgress(String(body.overrideReason ?? "").trim()).scrubbedText;
     if ((decision === "overridden_clean" || decision === "contested_appeal") && overrideReason.length < 6) {
       return NextResponse.json(
         { error: "Override or appeal requires a written reason (minimum 6 characters)." },
@@ -92,7 +102,7 @@ export async function POST(req: NextRequest) {
     }
 
     const event = appendLedgerDecision({
-      tenantId: body.tenantId || "store-ganesh-blr-01",
+      tenantId: STORE_TENANT_ID,
       invoiceId: body.invoiceId || "CUSTOM",
       invoiceNumber: body.invoiceNumber || "CUSTOM/01",
       vendorName: body.vendorName || "Supplier",
@@ -108,11 +118,11 @@ export async function POST(req: NextRequest) {
       dwellMs: body.dwellMs ?? 12000,
     });
 
-    const events = readLedgerEvents();
+    const { events, verification } = readLedgerWithIntegrity();
     return NextResponse.json({
       event,
       events,
-      verification: verifyHashChain(events),
+      verification,
       biasMonitor: computeAutomationBiasMonitor(events),
       gates: LIFECYCLE_GATES,
     });

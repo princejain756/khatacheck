@@ -321,7 +321,7 @@ export function parseVoiceRemarks(
   if (!rawTranscript || !rawTranscript.trim()) return [];
   const normalized = normalizeTranscriptText(rawTranscript);
   const clauses = normalized
-    .split(/[,;\n]+/)
+    .split(/(?:[,;\n]+|\.(?=\s|$)|\b(?:but|however|par|lekin|magar)\b)/i)
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -422,26 +422,32 @@ export function parseVoiceRemarks(
           }
         };
 
-        if (w === "out" && wNext === "of") {
-          markForwardDenom(i + 2);
-        } else if (w === "billed" || w === "invoiced") {
-          markForwardDenom(i + 1);
-        } else if ((w === "me" || w === "mein") && wNext === "se") {
-          const prevTok = cleanToken(tokens[i - 1]);
-          const prevPrevTok = cleanToken(tokens[i - 2]);
+        const markBackwardDenom = (endIdx: number) => {
+          if (endIdx < 0) return;
+          const prevTok = cleanToken(tokens[endIdx]);
+          const prevPrevTok = cleanToken(tokens[endIdx - 1]);
           const attPrev = /^(\d+(?:\.\d+)?)([a-z]+)$/.exec(prevTok);
           if (attPrev && UNIT_WORDS.has(attPrev[2])) {
-            excludedIdx.add(i - 1);
+            excludedIdx.add(endIdx);
           } else if (
             prevTok &&
             UNIT_WORDS.has(prevTok) &&
             (parseQtyToken(prevPrevTok) !== null || isZeroQtyToken(prevPrevTok))
           ) {
-            excludedIdx.add(i - 1);
-            excludedIdx.add(i - 2);
+            excludedIdx.add(endIdx);
+            excludedIdx.add(endIdx - 1);
           } else if (parseQtyToken(prevTok) !== null || isZeroQtyToken(prevTok)) {
-            excludedIdx.add(i - 1);
+            excludedIdx.add(endIdx);
           }
+        };
+
+        if (w === "out" && wNext === "of") {
+          markForwardDenom(i + 2);
+        } else if (w === "billed" || w === "invoiced") {
+          markForwardDenom(i + 1);
+          markBackwardDenom(i - 1);
+        } else if ((w === "me" || w === "mein") && wNext === "se") {
+          markBackwardDenom(i - 1);
         }
       }
 

@@ -1,3 +1,4 @@
+import { scrubPiiForModelEgress } from "./dpdp-privacy";
 import type { PromptGuardFinding, Severity } from "./types";
 
 interface GuardRule {
@@ -106,11 +107,14 @@ export function scanUntrustedInvoiceText(
         const key = `${rule.ruleId}:${field}`;
         if (!seenKey.has(key)) {
           seenKey.add(key);
+          const safeExcerpt = scrubPiiForModelEgress(m[0])
+            .scrubbedText.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "[UNICODE_CTRL]")
+            .slice(0, 96);
           findings.push({
             ruleId: rule.ruleId,
             family: rule.family,
             field,
-            excerptRedacted: m[0].replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "[UNICODE_CTRL]").slice(0, 96),
+            excerptRedacted: safeExcerpt,
             severity: rule.severity,
           });
         }
@@ -125,11 +129,14 @@ export function scanUntrustedInvoiceText(
           const key = `PG-C01-ENCODED:${rule.ruleId}:${field}`;
           if (!seenKey.has(key)) {
             seenKey.add(key);
+            const safeDecoded = scrubPiiForModelEgress(chunk.decoded)
+              .scrubbedText.replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "[UNICODE_CTRL]")
+              .slice(0, 72);
             findings.push({
               ruleId: "PG-C01-ENCODED-INJECTION",
               family: "C_encoded_payload",
               field,
-              excerptRedacted: `[DECODED_${chunk.kind.toUpperCase()}] ${chunk.decoded.slice(0, 72)}`,
+              excerptRedacted: `[DECODED_${chunk.kind.toUpperCase()}] ${safeDecoded}`,
               severity: "critical",
             });
           }

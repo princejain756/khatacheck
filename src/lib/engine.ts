@@ -20,11 +20,33 @@ export const CLARITY_MIN_THRESHOLD = 85;
 export function computeBillSha256(invoice: InvoiceInput): string {
   const billCanonical = JSON.stringify({
     id: invoice.id,
+    tenantId: invoice.tenantId,
     vendorGstin: invoice.vendorGstin,
+    supplierStateCode: invoice.supplierStateCode,
+    placeOfSupplyStateCode: invoice.placeOfSupplyStateCode,
     invoiceNumber: invoice.invoiceNumber,
     invoiceDate: invoice.invoiceDate,
+    roundOffPaise: invoice.roundOffPaise,
+    declaredTaxableSubtotalPaise: invoice.declaredTaxableSubtotalPaise,
+    declaredTotalTaxPaise: invoice.declaredTotalTaxPaise,
     declaredGrandTotalPaise: invoice.declaredGrandTotalPaise,
-    lines: invoice.lines.map((l) => [l.lineNumber, l.sku, l.hsnCode, l.qtyMilli, l.declaredLineTotalPaise]),
+    lines: invoice.lines.map((l) => [
+      l.lineNumber,
+      l.sku,
+      l.hsnCode,
+      l.qtyMilli,
+      l.unit,
+      l.unitRatePaise,
+      l.discountPaise,
+      l.declaredTaxablePaise,
+      l.declaredCgstBps,
+      l.declaredSgstBps,
+      l.declaredIgstBps,
+      l.declaredCgstPaise,
+      l.declaredSgstPaise,
+      l.declaredIgstPaise,
+      l.declaredLineTotalPaise,
+    ]),
   });
   return crypto.createHash("sha256").update(billCanonical, "utf8").digest("hex");
 }

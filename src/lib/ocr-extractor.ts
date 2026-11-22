@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { scrubPiiForModelEgress } from "./dpdp-privacy";
 import { CLARITY_MIN_THRESHOLD } from "./engine";
-import { GST_STATE_CODES, computeGstinCheckChar, lookupHsnRule, validateGstin } from "./gst-rules";
+import { GST_STATE_CODES, lookupHsnRule, validateGstin } from "./gst-rules";
 import { type ClarityMethod, scoreImageClarity } from "./image-clarity";
 import { bigIntAbs, halfUpDiv, parseINRToPaise } from "./money";
 import { scanUntrustedInvoiceText } from "./prompt-guard";
@@ -304,10 +304,23 @@ function tokenizeRowForParsing(rawRow: string, expectedRowNum: number): string[]
   const rawTokens = spaced.split(" ");
   const out: string[] = [];
 
-  for (const tok of rawTokens) {
+  for (let k = 0; k < rawTokens.length; k += 1) {
     // Strip mismatched OCR parens (e.g. "138.00(") and trailing commas while preserving "(500 g)"
-    const cleaned = tok.replace(/^[)\s]+|[(\s,]+$/g, "");
+    const cleaned = rawTokens[k].replace(/^[)\s]+|[(\s,]+$/g, "");
     if (!cleaned) continue;
+    // Split pipe-glued 5/7-digit "<4-digit HSN>[1Il]<1-2 digit qty>" before a measurement unit
+    const nextRaw = (rawTokens[k + 1] ?? "").replace(/^[)\s]+|[(\s,]+$/g, "");
+    const nextTwoRaw = (rawTokens[k + 2] ?? "").replace(/^[)\s]+|[(\s,]+$/g, "");
+    const gluedHsnQty = /^(\d{4})[1Il](\d{1,2})$/.exec(cleaned);
+    if (
+      gluedHsnQty &&
+      (cleaned.length === 5 || cleaned.length === 7) &&
+      lookupHsnRule(gluedHsnQty[1]) &&
+      (normalizeUnit(nextRaw) || (/^[1Il]$/.test(nextRaw) && normalizeUnit(nextTwoRaw)))
+    ) {
+      out.push(gluedHsnQty[1], gluedHsnQty[2]);
+      continue;
+    }
     // Split glued quantity+unit like "50Kg" or "10pkt"
     const qtyUnit = /^(\d+(?:\.\d+)?)([A-Za-z]{1,8})$/.exec(cleaned);
     if (qtyUnit && normalizeUnit(qtyUnit[2])) {
@@ -557,48 +570,62 @@ export interface DeterministicOcrParseResult {
   confidenceScore: number;
 }
 
-const OCR_CHECK_HOMOGLYPHS: Readonly<Record<string, readonly string[]>> = {
-  "0": ["O", "Q"],
-  O: ["0"],
-  Q: ["0"],
-  "1": ["I", "L"],
-  I: ["1"],
-  L: ["1"],
-  "5": ["S"],
-  S: ["5"],
-  "8": ["B"],
-  B: ["8"],
+const GSTIN_TO_DIGIT: Readonly<Record<string, string>> = {
+  O: "0",
+  Q: "0",
+  D: "0",
+  I: "1",
+  L: "1",
+  Z: "2",
+  S: "5",
+  G: "6",
+  B: "8",
 };
+
+const GSTIN_TO_ALPHA: Readonly<Record<string, string>> = {
+  "0": "O",
+  "1": "I",
+  "2": "Z",
+  "5": "S",
+  "6": "G",
+  "8": "B",
+};
+
+function normalizeGstinSchemaPositions(token15: string): string {
+  const chars = token15.split("");
+  for (const idx of [0, 1, 7, 8, 9, 10]) {
+    if (chars[idx] && GSTIN_TO_DIGIT[chars[idx]]) {
+      chars[idx] = GSTIN_TO_DIGIT[chars[idx]];
+    }
+  }
+  for (const idx of [2, 3, 4, 5, 6, 11]) {
+    if (chars[idx] && GSTIN_TO_ALPHA[chars[idx]]) {
+      chars[idx] = GSTIN_TO_ALPHA[chars[idx]];
+    }
+  }
+  if (chars[13] === "2") {
+    chars[13] = "Z";
+  }
+  // Never rewrite index [14] check character so genuine check-digit faults stay invalid_gstin.
+  return chars.join("");
+}
 
 function repairOcrGstinToken(rawToken: string): string {
   const cand = rawToken.toUpperCase().replace(/[^0-9A-Z]/g, "");
   const strictSingle = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
-  const repairCheckHomoglyph = (token15: string): string => {
-    if (validateGstin(token15).valid) return token15;
-    if (strictSingle.test(token15)) {
-      const expected = computeGstinCheckChar(token15.slice(0, 14));
-      const allowed = OCR_CHECK_HOMOGLYPHS[token15[14]];
-      if (expected && allowed && allowed.includes(expected)) {
-        return token15.slice(0, 14) + expected;
-      }
-    }
-    return token15;
-  };
-
   if (cand.length === 15) {
-    return repairCheckHomoglyph(cand);
+    const schemaFixed = normalizeGstinSchemaPositions(cand);
+    return strictSingle.test(schemaFixed) ? schemaFixed : cand;
   }
 
   // Tesseract can split glyphs near the entity/Z separator (e.g. 1Z -> 12Z, G1 -> G61)
   if (cand.length === 16) {
     const validCandidates = new Set<string>();
     for (const pos of [11, 12, 13]) {
-      const shortened = cand.slice(0, pos) + cand.slice(pos + 1);
-      if (!strictSingle.test(shortened)) continue;
-      const fixed = repairCheckHomoglyph(shortened);
-      if (validateGstin(fixed).valid) {
-        validCandidates.add(fixed);
+      const shortened = normalizeGstinSchemaPositions(cand.slice(0, pos) + cand.slice(pos + 1));
+      if (strictSingle.test(shortened) && validateGstin(shortened).valid) {
+        validCandidates.add(shortened);
       }
     }
     if (validCandidates.size === 1) {
@@ -609,7 +636,7 @@ function repairOcrGstinToken(rawToken: string): string {
   return "";
 }
 
-function extractGstins(lines: string[]): { vendorGstin: string; buyerGstin: string } {
+export function extractGstins(lines: string[]): { vendorGstin: string; buyerGstin: string } {
   const strictRe = /\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z])\b/g;
   const labelRe = /\bGSTIN\b\s*[:=\-]?\s*([0-9A-Z]{14,16})/i;
   let section: "header" | "supplier" | "buyer" = "header";
@@ -844,6 +871,27 @@ export function parseOcrInvoiceText(
   const effSupplierState = supplierStateCode || "29";
   const effPosState = placeOfSupplyStateCode || (/^\d{2}/.test(buyerGstin) ? buyerGstin.slice(0, 2) : effSupplierState);
   const isInterstate = Boolean(effSupplierState && effPosState && effSupplierState !== effPosState);
+  const sawHeaderCgstSgst = rawLines.some(
+    (ln) => /(?:description|particulars|hsn|taxable|rate)/i.test(ln) && /\b(?:cgst|sgst)\b/i.test(ln)
+  );
+  const sawHeaderIgst = rawLines.some(
+    (ln) => /(?:description|particulars|hsn|taxable|rate)/i.test(ln) && /\bigst\b/i.test(ln)
+  );
+  const sawSummaryCgstSgst = declaredCgstPaise > 0n || declaredSgstPaise > 0n;
+  const sawSummaryIgst = declaredIgstPaise > 0n;
+
+  // Preserve the tax split printed on the invoice so illegal interstate CGST+SGST or intrastate IGST is flagged
+  let useInterstateTaxSplit = isInterstate;
+  if (sawSummaryCgstSgst && !sawSummaryIgst) {
+    useInterstateTaxSplit = false;
+  } else if (sawSummaryIgst && !sawSummaryCgstSgst) {
+    useInterstateTaxSplit = true;
+  } else if (sawHeaderCgstSgst && !sawHeaderIgst) {
+    useInterstateTaxSplit = false;
+  } else if (sawHeaderIgst && !sawHeaderCgstSgst) {
+    useInterstateTaxSplit = true;
+  }
+
   const pageConf = options?.pageConfidence ?? 90;
 
   const lines: InvoiceLineInput[] = [];
@@ -865,7 +913,7 @@ export function parseOcrInvoiceText(
         declaredTaxablePaise: draft.declaredTaxablePaise,
         gstPct: draft.gstPct,
         declaredLineTotalPaise: draft.declaredLineTotalPaise,
-        isInterstate,
+        isInterstate: useInterstateTaxSplit,
         ocrConfidence: draft.confidence,
       })
     );

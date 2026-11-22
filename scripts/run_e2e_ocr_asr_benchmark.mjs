@@ -98,12 +98,14 @@ async function runImageCase(baseUrl, item) {
   const abstainedClarity = Boolean(verification.abstainedClarity);
 
   let faultDetectionPassed = false;
+  const expectedSet = [...new Set(item.expectedFaultCategories)].sort();
+  const detectedSet = [...new Set(detectedCategories)].sort();
   if (!item.expectedClarityPass) {
-    faultDetectionPassed = abstainedClarity && detectedCategories.includes("clarity_abstain");
-  } else if (item.expectedFaultCategories.length === 0) {
-    faultDetectionPassed = detectedCategories.length === 0;
+    faultDetectionPassed = abstainedClarity && detectedSet.includes("clarity_abstain");
   } else {
-    faultDetectionPassed = item.expectedFaultCategories.every((c) => detectedCategories.includes(c));
+    faultDetectionPassed =
+      expectedSet.length === detectedSet.length &&
+      expectedSet.every((c, idx) => detectedSet[idx] === c);
   }
 
   const abstentionPassed = item.expectedClarityPass

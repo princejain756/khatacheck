@@ -7,8 +7,7 @@ import {
   buildTallyPurchaseXml,
   computeAutomationBiasMonitor,
   isInvoiceApprovedInEvents,
-  readLedgerEvents,
-  verifyHashChain,
+  readLedgerWithIntegrity,
 } from "@/lib/governance-ledger";
 import { ORACLE_PROFILE_LABEL, RULE_BUNDLE_VERSION } from "@/lib/gst-rules";
 
@@ -27,17 +26,17 @@ export async function GET(req: NextRequest) {
         { status: 404, headers: { "Cache-Control": "no-store" } }
       );
     }
-    const events = readLedgerEvents();
-    const chain = verifyHashChain(events);
+    const { events, verification: chain } = readLedgerWithIntegrity();
     const expectedBillSha256 = computeBillSha256(scenario.invoice);
     const approved =
-      chain.valid && isInvoiceApprovedInEvents(events, scenario.id, expectedBillSha256);
+      chain.valid &&
+      isInvoiceApprovedInEvents(events, scenario.id, expectedBillSha256, scenario.invoice.tenantId);
     if (!approved) {
       return NextResponse.json(
         {
           error: !chain.valid
             ? "Audit ledger SHA-256 hash chain verification failed; Tally Sandbox XML export blocked."
-            : "Store owner approval in the SHA-256 audit ledger with matching bill SHA-256 is required before Tally Sandbox XML export.",
+            : "Store owner approval in the SHA-256 audit ledger with matching bill SHA-256 and tenant is required before Tally Sandbox XML export.",
           scenarioId: scenario.id,
           approved: false,
           chainValid: chain.valid,
@@ -57,7 +56,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (format === "dispute-csv") {
-    const events = readLedgerEvents();
+    const { events } = readLedgerWithIntegrity();
     const csv = buildDisputeCsv(events);
     return new NextResponse(csv, {
       headers: {
@@ -68,13 +67,13 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const events = readLedgerEvents();
+  const { events, verification } = readLedgerWithIntegrity();
   const manifest = {
     standard: "ISO/IEC 42001 AIMS Audit Manifest",
     exportedAtIso: new Date().toISOString(),
     ruleBundleVersion: RULE_BUNDLE_VERSION,
     oracleProfile: ORACLE_PROFILE_LABEL,
-    chainVerification: verifyHashChain(events),
+    chainVerification: verification,
     automationBiasMonitor: computeAutomationBiasMonitor(events),
     lifecycleGates: LIFECYCLE_GATES,
     events,

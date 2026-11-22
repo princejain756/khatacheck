@@ -3,6 +3,7 @@ import { halfUpDiv, parseINRToPaise } from "./money";
 import {
   type OcrMeta,
   extractAndParseInvoiceImage,
+  extractGstins,
   isImageUpload,
   parseOcrInvoiceText,
 } from "./ocr-extractor";
@@ -101,16 +102,18 @@ export function parseCustomInvoiceText(
     }
   }
 
-  // Parse pipe/CSV/free-text invoice snippets cleanly
-  const gstinMatch = /\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b/.exec(trimmed.toUpperCase());
+  // Parse pipe/CSV/free-text invoice snippets cleanly while keeping buyer GSTIN isolated
+  const rows = trimmed.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
+  const extractedGstins = extractGstins(rows);
   const defaultPrefix = "29CUSTM1234A1Z";
   const defaultGstin = defaultPrefix + computeGstinCheckChar(defaultPrefix);
-  const vendorGstin = gstinMatch ? gstinMatch[0] : (options?.fallbackVendorGstin || defaultGstin);
+  const vendorGstin =
+    extractedGstins.vendorGstin || options?.fallbackVendorGstin || defaultGstin;
+  const buyerGstin = extractedGstins.buyerGstin || "29BBBBB1111B2ZM";
   const stateCode = vendorGstin.slice(0, 2);
   const invNoMatch = /(?:invoice|bill)\s*(?:no|#|number)?[:\s-]+([A-Z0-9\/-]{3,24})/i.exec(trimmed);
 
   const lines: InvoiceLineInput[] = [];
-  const rows = trimmed.split(/\r?\n/).map((r) => r.trim()).filter(Boolean);
   let idx = 1;
   let totalTaxable = 0n;
   let totalTax = 0n;
@@ -191,7 +194,7 @@ export function parseCustomInvoiceText(
         vendorName: gstParsed.vendorName,
         vendorGstin: gstParsed.vendorGstin || options?.fallbackVendorGstin || defaultGstin,
         buyerName: gstParsed.buyerName,
-        buyerGstin: gstParsed.buyerGstin || defaultGstin,
+        buyerGstin: gstParsed.buyerGstin || "29BBBBB1111B2ZM",
         supplierStateCode: gstParsed.supplierStateCode,
         placeOfSupplyStateCode: gstParsed.placeOfSupplyStateCode,
         invoiceNumber: gstParsed.invoiceNumber,
@@ -239,7 +242,7 @@ export function parseCustomInvoiceText(
     vendorName: "Custom Uploaded Supplier",
     vendorGstin,
     buyerName: "Ganesh Kirana Stores",
-    buyerGstin: defaultGstin,
+    buyerGstin,
     supplierStateCode: stateCode,
     placeOfSupplyStateCode: stateCode,
     invoiceNumber: invNoMatch ? invNoMatch[1] : `UPL/${Date.now().toString().slice(-4)}`,

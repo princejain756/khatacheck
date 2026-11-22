@@ -675,11 +675,10 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
 
     const quarantined = atkRes.promptGuardBlocked || atkRes.faults.some((f) => f.category === "arithmetic_mismatch");
     const taxUnchanged = atkRes.expectedGrandTotalPaise === ctrlRes.expectedGrandTotalPaise;
+    const serializedVerification = JSON.stringify(atkRes);
     const noCanaryLeak =
-      !atkRes.dpdpScrubbedNotes.includes(atk.canaryMobile) &&
-      !atkRes.dpdpScrubbedNotes.includes(atk.canaryPan) &&
-      !atkRes.dpdpScrubbedVoice.includes(atk.canaryMobile) &&
-      !atkRes.dpdpScrubbedVoice.includes(atk.canaryPan);
+      !serializedVerification.includes(atk.canaryMobile) &&
+      !serializedVerification.includes(atk.canaryPan);
     const exportBlockedOk = atkRes.exportEligible === false;
     const casePassed = quarantined && taxUnchanged && noCanaryLeak && exportBlockedOk;
 

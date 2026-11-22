@@ -2,12 +2,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DEMO_SCENARIOS } from "./bill-scenarios";
+import { scrubPiiForModelEgress } from "./dpdp-privacy";
 import { computeBillSha256 } from "./engine";
 import { RULE_BUNDLE_VERSION } from "./gst-rules";
 import { formatPaiseDecimalString } from "./money";
 import type { AuditLedgerEvent, CropBbox, InvoiceInput, ReviewDecision } from "./types";
 
 export const GENESIS_HASH = "0".repeat(64);
+export const STORE_TENANT_ID = "store-ganesh-blr-01";
 const DATA_DIR = path.join(process.cwd(), "data");
 const LEDGER_PATH = path.join(DATA_DIR, "audit-ledger.jsonl");
 
@@ -158,32 +160,65 @@ export function seedDefaultLedger(): AuditLedgerEvent[] {
   return built;
 }
 
-export function readLedgerEvents(): AuditLedgerEvent[] {
+export function readLedgerWithIntegrity(): {
+  events: AuditLedgerEvent[];
+  corruptLineNumbers: number[];
+  verification: ReturnType<typeof verifyHashChain>;
+} {
   ensureLedgerSeeded();
   const raw = fs.readFileSync(LEDGER_PATH, "utf8");
   const events: AuditLedgerEvent[] = [];
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
+  const corruptLineNumbers: number[] = [];
+  const rawLines = raw.split("\n");
+  for (let idx = 0; idx < rawLines.length; idx += 1) {
+    const trimmed = rawLines[idx].trim();
     if (!trimmed) continue;
     try {
-      events.push(JSON.parse(trimmed) as AuditLedgerEvent);
+      const parsed = JSON.parse(trimmed) as AuditLedgerEvent;
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        typeof parsed.seq !== "number" ||
+        typeof parsed.entryHash !== "string" ||
+        typeof parsed.prevHash !== "string"
+      ) {
+        corruptLineNumbers.push(idx + 1);
+        continue;
+      }
+      events.push(parsed);
     } catch {
-      // Ignore torn tail gracefully for resilience
+      corruptLineNumbers.push(idx + 1);
     }
   }
-  return events;
+  const chain = verifyHashChain(events);
+  const verification =
+    corruptLineNumbers.length > 0
+      ? {
+          ...chain,
+          valid: false,
+          brokenAtSeq: corruptLineNumbers[0],
+          errorReason: `Malformed audit ledger JSONL record at line ${corruptLineNumbers[0]}`,
+        }
+      : chain;
+  return { events, corruptLineNumbers, verification };
+}
+
+export function readLedgerEvents(): AuditLedgerEvent[] {
+  return readLedgerWithIntegrity().events;
 }
 
 export function isInvoiceApprovedInEvents(
   events: AuditLedgerEvent[],
   invoiceId: string,
-  expectedBillSha256?: string
+  expectedBillSha256?: string,
+  expectedTenantId?: string
 ): boolean {
   return events.some(
     (e) =>
       e.invoiceId === invoiceId &&
       (e.decision === "approved_flag" || e.decision === "overridden_clean") &&
-      (!expectedBillSha256 || e.billSha256 === expectedBillSha256)
+      (!expectedBillSha256 || e.billSha256 === expectedBillSha256) &&
+      (!expectedTenantId || e.tenantId === expectedTenantId)
   );
 }
 
@@ -220,18 +255,24 @@ export function appendLedgerDecision(input: {
   actorRef?: string;
   isSyntheticStress?: boolean;
 }): AuditLedgerEvent {
-  const existing = readLedgerEvents();
+  const { events: existing, verification } = readLedgerWithIntegrity();
+  if (!verification.valid) {
+    throw new Error(verification.errorReason || "Audit ledger integrity check failed; reset demo ledger first.");
+  }
   const last = existing[existing.length - 1];
   const seq = last ? last.seq + 1 : 1;
   const prevHash = last ? last.entryHash : GENESIS_HASH;
+  const cleanOverrideReason = scrubPiiForModelEgress(input.overrideReason).scrubbedText;
+  const cleanVendorName = scrubPiiForModelEgress(input.vendorName).scrubbedText;
+  const cleanInvoiceNumber = scrubPiiForModelEgress(input.invoiceNumber).scrubbedText;
 
   const base: Omit<AuditLedgerEvent, "entryHash"> = {
     seq,
     eventId: `EVT-${1000 + seq}`,
     tenantId: input.tenantId,
     invoiceId: input.invoiceId,
-    invoiceNumber: input.invoiceNumber,
-    vendorName: input.vendorName,
+    invoiceNumber: cleanInvoiceNumber,
+    vendorName: cleanVendorName,
     billSha256: input.billSha256,
     billReceivedTs: input.billReceivedTs,
     flagSentTs: input.flagSentTs,
@@ -244,7 +285,7 @@ export function appendLedgerDecision(input: {
     ruleChecks: input.ruleChecks,
     varianceAtRiskPaise: input.varianceAtRiskPaise,
     decision: input.decision,
-    overrideReason: input.overrideReason,
+    overrideReason: cleanOverrideReason,
     dwellMs: Math.max(0, Math.round(input.dwellMs)),
     actorRef: input.actorRef ?? "owner_ganesh_01",
     ...(input.isSyntheticStress ? { isSyntheticStress: true } : {}),
@@ -379,8 +420,8 @@ export function computeAutomationBiasMonitor(events: AuditLedgerEvent[]): Automa
 
   const approvalRatePct = completedCount > 0 ? Math.round((approvedCount * 1000) / completedCount) / 10 : 0;
   const dwells = completed
-    .map((e) => e.dwellMs ?? 0)
-    .filter((d) => Number.isFinite(d) && d > 0)
+    .map((e) => (typeof e.dwellMs === "number" ? e.dwellMs : 0))
+    .filter((d) => Number.isFinite(d) && d >= 0)
     .sort((a, b) => a - b);
 
   let medianDwellMs = 0;
@@ -391,12 +432,12 @@ export function computeAutomationBiasMonitor(events: AuditLedgerEvent[]): Automa
     if (dwells.length % 2 === 1) {
       medianDwellMs = dwells[mid];
       exactMedianMs = dwells[mid];
-      medianBelow3s = dwells[mid] > 0 && dwells[mid] < 3000;
+      medianBelow3s = dwells[mid] < 3000;
     } else {
       const pairSum = dwells[mid - 1] + dwells[mid];
       medianDwellMs = Math.round(pairSum / 2);
       exactMedianMs = pairSum / 2;
-      medianBelow3s = pairSum > 0 && pairSum < 6000;
+      medianBelow3s = pairSum < 6000;
     }
   }
 

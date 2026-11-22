@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   AlertTriangle,
@@ -57,7 +57,7 @@ export function WorkbenchClient({
   const [overrideOpen, setOverrideOpen] = useState(false);
   const [overrideMode, setOverrideMode] = useState<"overridden_clean" | "contested_appeal">("overridden_clean");
   const [overrideReason, setOverrideReason] = useState("");
-  const [dwellSec, setDwellSec] = useState(1);
+  const [dwellSec, setDwellSec] = useState(0);
   const [ocrMeta, setOcrMeta] = useState<OcrMeta | null>(null);
   const [extractKind, setExtractKind] = useState<string>("structured_scenario");
   const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState<string | null>(null);
@@ -71,14 +71,46 @@ export function WorkbenchClient({
   const audioChunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<number | null>(null);
   const previewUrlRef = useRef<string | null>(null);
+  const visibleAccumMsRef = useRef(0);
+  const visibleStartTsRef = useRef<number | null>(null);
+
+  const resetReviewDwell = useCallback(() => {
+    visibleAccumMsRef.current = 0;
+    visibleStartTsRef.current =
+      typeof document === "undefined" || document.visibilityState === "visible" ? Date.now() : null;
+    setDwellSec(0);
+  }, []);
 
   useEffect(() => {
-    const id = window.setInterval(() => {
-      if (typeof document === "undefined" || document.visibilityState === "visible") {
-        setDwellSec((s) => s + 1);
+    const readVisibleDwellMs = () => {
+      const active =
+        visibleStartTsRef.current !== null ? Math.max(0, Date.now() - visibleStartTsRef.current) : 0;
+      return Math.round(visibleAccumMsRef.current + active);
+    };
+
+    const syncVisibleSegment = () => {
+      if (document.visibilityState === "visible") {
+        if (visibleStartTsRef.current === null) {
+          visibleStartTsRef.current = Date.now();
+        }
+      } else if (visibleStartTsRef.current !== null) {
+        visibleAccumMsRef.current += Math.max(0, Date.now() - visibleStartTsRef.current);
+        visibleStartTsRef.current = null;
       }
-    }, 1000);
-    return () => window.clearInterval(id);
+      setDwellSec(Math.floor(readVisibleDwellMs() / 1000));
+    };
+
+    syncVisibleSegment();
+    document.addEventListener("visibilitychange", syncVisibleSegment);
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        setDwellSec(Math.floor(readVisibleDwellMs() / 1000));
+      }
+    }, 500);
+    return () => {
+      document.removeEventListener("visibilitychange", syncVisibleSegment);
+      window.clearInterval(id);
+    };
   }, []);
 
   useEffect(() => {
@@ -135,7 +167,7 @@ export function WorkbenchClient({
           data.verification.faults.find((f: { lineNumber?: number }) => f.lineNumber)?.lineNumber ??
           null
       );
-      setDwellSec(1);
+      resetReviewDwell();
     } catch (e) {
       setStatusMsg(e instanceof Error ? e.message : "Unable to verify bill");
     } finally {
@@ -173,6 +205,7 @@ export function WorkbenchClient({
       }
       setInvoice(analyzeData.invoice);
       setResult(analyzeData.verification);
+      resetReviewDwell();
       setActiveLineHighlight(
         analyzeData.verification.faults.find(
           (f: { category?: string; lineNumber?: number }) => f.category === "voice_shortage" && f.lineNumber
@@ -292,6 +325,7 @@ export function WorkbenchClient({
       if (!resp.ok) throw new Error(data.error || "Voice check failed");
       setInvoice(data.invoice);
       setResult(data.verification);
+      resetReviewDwell();
       setStatusMsg("Voice note reconciled through deterministic rupee checks.");
     } catch (e) {
       setStatusMsg(e instanceof Error ? e.message : "Voice check failed");
@@ -333,7 +367,7 @@ export function WorkbenchClient({
       } else {
         setStatusMsg(`Uploaded ${file.name} (${data.extractKind.replace(/_/g, " ")}) inspected.`);
       }
-      setDwellSec(1);
+      resetReviewDwell();
     } catch (e) {
       setStatusMsg(e instanceof Error ? e.message : "Upload failed");
     } finally {
@@ -349,7 +383,9 @@ export function WorkbenchClient({
     setBusy(true);
     setStatusMsg(null);
     try {
-      const dwellMs = Math.max(1000, dwellSec * 1000);
+      const activeSliceMs =
+        visibleStartTsRef.current !== null ? Math.max(0, Date.now() - visibleStartTsRef.current) : 0;
+      const dwellMs = Math.round(visibleAccumMsRef.current + activeSliceMs);
       const minConf =
         result.lines.length > 0
           ? Math.min(...result.lines.map((l) => l.ocrConfidence))
