@@ -184,7 +184,7 @@ export function BenchmarksClient({
           </h1>
           <p className="type-body text-muted mt-0.5">
             500-bill seeded synthetic rule-core suite ({report.seed}), executed live OCR + Groq Whisper
-            ASR end-to-end lab study, 49-bill external third-party benchmark, 5-subgroup launch gate,
+            ASR end-to-end lab study, 49-bill sampled third-party benchmark, 5-subgroup launch gate,
             and 50-attack red-team audit.
           </p>
         </div>
@@ -236,7 +236,7 @@ export function BenchmarksClient({
                 {" "}
                 plus{" "}
                 <span className="font-code text-ink">
-                  {externalHfReport.overallSummary.totalCases} unseen third-party bills
+                  {externalHfReport.overallSummary.totalCases} sampled third-party bills
                 </span>{" "}
                 from{" "}
                 <span className="font-code text-ink">
@@ -734,7 +734,7 @@ export function BenchmarksClient({
         </div>
       ) : null}
 
-      {/* Independent Third-Party Unseen Benchmark (Divya52/indian-gst-invoices, CC BY 4.0) */}
+      {/* Independent Third-Party Sampled Benchmark (Divya52/indian-gst-invoices, CC BY 4.0) */}
       {externalHfReport ? (
         <div className="app-card p-4 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -744,7 +744,7 @@ export function BenchmarksClient({
                 Independent Third-Party Benchmark ({externalHfReport.attribution.dataset},{" "}
                 {externalHfReport.attribution.license}, commit{" "}
                 {externalHfReport.attribution.datasetCommit.slice(0, 8)},{" "}
-                {externalHfReport.overallSummary.totalCases} Unseen Bills)
+                {externalHfReport.overallSummary.totalCases} Sampled Bills)
               </h2>
               <p className="type-meta text-muted mt-0.5">
                 Live HTTPS round-trip against{" "}
@@ -753,7 +753,8 @@ export function BenchmarksClient({
                   {externalHfReport.targetCodeCommit.slice(0, 7)}
                 </span>{" "}
                 · <span className="font-code">{externalHfReport.runId}</span> ·{" "}
-                {externalHfReport.overallSummary.enginesObserved.join(", ")} · zero dataset tuning
+                {externalHfReport.overallSummary.enginesObserved.join(", ")} · general layout and
+                guard upgrades informed by an initial 5-row diagnostic probe; zero per-row hardcoding
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -776,7 +777,7 @@ export function BenchmarksClient({
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="rounded-lg border border-line bg-subtle/60 p-3">
               <div className="type-kpi-label text-faint">
-                Overall ({externalHfReport.overallSummary.totalCases} Unseen Bills)
+                Overall ({externalHfReport.overallSummary.totalCases} Sampled Bills)
               </div>
               <div className="type-section numeral text-ink mt-1">
                 {externalHfReport.overallSummary.grandTotalExactMatchPct}% (
@@ -896,7 +897,7 @@ export function BenchmarksClient({
                 }`}
               >
                 <ScanText className="w-3.5 h-3.5" />
-                All {externalHfReport.results.length} Unseen Bills
+                All {externalHfReport.results.length} Sampled Bills
               </button>
             </div>
             <span className="type-meta font-code text-faint">
