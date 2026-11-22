@@ -162,14 +162,6 @@ const CANONICAL_UNITS: Record<string, string> = {
   tubs: "tub",
 };
 
-const CANONICAL_TO_ALIASES: Record<string, string[]> = {};
-for (const [alias, canon] of Object.entries(CANONICAL_UNITS)) {
-  if (!CANONICAL_TO_ALIASES[canon]) {
-    CANONICAL_TO_ALIASES[canon] = [];
-  }
-  CANONICAL_TO_ALIASES[canon].push(alias);
-}
-
 const UNIT_WORDS = new Set(Object.keys(CANONICAL_UNITS));
 
 export function canonicalizeVoiceUnit(raw: string | null | undefined): string | null {
@@ -216,6 +208,18 @@ export interface ParsedVoiceHit {
   variancePaise: string;
   confirmationPrompt: string;
   rawSpan: string;
+}
+
+const ZERO_NUMBER_WORDS = new Set(["zero", "nil", "shunya", "shoonya"]);
+
+function isZeroQtyToken(tok: string): boolean {
+  const clean = tok.toLowerCase().trim();
+  if (ZERO_NUMBER_WORDS.has(clean)) return true;
+  if (/^\d+(?:\.\d+)?$/.test(clean)) {
+    const n = Number(clean);
+    return Number.isFinite(n) && n === 0;
+  }
+  return false;
 }
 
 function parseQtyToken(tok: string): number | null {
@@ -354,6 +358,7 @@ export function parseVoiceRemarks(
       const unitPairs: Array<{ qty: number; unit: string }> = [];
       const consumedIdx = new Set<number>();
       let fallbackQty: number | null = null;
+      let hasExplicitZero = false;
 
       for (let i = 0; i < tokens.length; i += 1) {
         if (consumedIdx.has(i)) continue;
@@ -361,11 +366,25 @@ export function parseVoiceRemarks(
         const attached = /^(\d+(?:\.\d+)?)([a-z]+)$/.exec(tok);
         if (attached && UNIT_WORDS.has(attached[2])) {
           const aq = Number(attached[1]);
+          if (Number.isFinite(aq) && aq === 0) {
+            hasExplicitZero = true;
+            consumedIdx.add(i);
+            continue;
+          }
           if (Number.isFinite(aq) && aq > 0 && aq <= 10000) {
             unitPairs.push({ qty: aq, unit: attached[2] });
             consumedIdx.add(i);
             continue;
           }
+        }
+        if (isZeroQtyToken(tok)) {
+          hasExplicitZero = true;
+          const next = cleanToken(tokens[i + 1]);
+          if (next && UNIT_WORDS.has(next)) {
+            consumedIdx.add(i + 1);
+          }
+          consumedIdx.add(i);
+          continue;
         }
         const q = parseQtyToken(tok);
         if (q !== null) {
@@ -394,16 +413,21 @@ export function parseVoiceRemarks(
           .toLowerCase()
           .replace(/[^a-z0-9.]+/g, " ")
           .trim();
+        const descUnitPairs: Array<{ qty: number; canonUnit: string | null }> = [];
+        for (const m of descNorm.matchAll(/\b(\d+(?:\.\d+)?)\s*([a-z]+)\b/g)) {
+          if (!UNIT_WORDS.has(m[2])) continue;
+          const dq = Number(m[1]);
+          const dc = canonicalizeVoiceUnit(m[2]);
+          if (Number.isFinite(dq) && dc) {
+            descUnitPairs.push({ qty: dq, canonUnit: dc });
+          }
+        }
         const isPackDescriptor = (p: { qty: number; unit: string }): boolean => {
-          const rawUnit = p.unit.toLowerCase();
-          const canon = canonicalizeVoiceUnit(rawUnit);
-          const synonymList = canon && CANONICAL_TO_ALIASES[canon] ? CANONICAL_TO_ALIASES[canon] : [];
-          const unitAliases = [...new Set([rawUnit, canon, ...synonymList].filter((u): u is string => Boolean(u)))];
-          const escapedQty = String(p.qty).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          return unitAliases.some((u) => {
-            const escapedUnit = u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            return new RegExp(`(?:^|\\s)${escapedQty}\\s*${escapedUnit}(?=\\s|$)`).test(descNorm);
-          });
+          const canon = canonicalizeVoiceUnit(p.unit);
+          if (!canon) return false;
+          return descUnitPairs.some(
+            (dp) => dp.qty === p.qty && dp.canonUnit === canon
+          );
         };
         const nonPackPairs = unitPairs.filter((p) => !isPackDescriptor(p));
         if (nonPackPairs.length > 0) {
@@ -416,6 +440,9 @@ export function parseVoiceRemarks(
           foundUnit = chosen.unit;
         } else if (fallbackQty !== null) {
           foundQty = fallbackQty;
+          foundUnit = null;
+        } else if (hasExplicitZero) {
+          foundQty = 0;
           foundUnit = null;
         } else {
           const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);

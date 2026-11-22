@@ -873,4 +873,17 @@ test("Spelled-out sub-units like milligrams and millilitres route mismatches to 
   assert.equal(packAloneHits[0].kind, "shortage");
   assert.equal(packAloneHits[0].shortageQty, 1);
   assert.equal(packAloneHits[0].variancePaise, "12390");
+
+  const decimalPackLine = { ...kirana.lines[0], description: "Arhar / Toor Dal (1.0 kilogram bags)" };
+  const decimalPackHits = parseVoiceRemarks("Arhar Dal 1 kg bags had 5 g missing", [decimalPackLine]);
+  assert.equal(decimalPackHits.length, 1);
+  assert.equal(decimalPackHits[0].kind, "unmatched_manual");
+  assert.equal(decimalPackHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(decimalPackHits[0].shortageQty, 5);
+  assert.equal(decimalPackHits[0].variancePaise, "0");
+
+  assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had zero missing", [packLine]).length, 0);
+  assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had 0 missing", [packLine]).length, 0);
+  assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had 0kg missing", [packLine]).length, 0);
+  assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had nil missing", [packLine]).length, 0);
 });
