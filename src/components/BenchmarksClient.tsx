@@ -20,20 +20,29 @@ import {
   SUBGROUP_LABELS,
   labelFor,
 } from "@/lib/display-labels";
-import type { BenchmarkReport, E2eOcrAsrReport } from "@/lib/types";
+import type { BenchmarkReport, E2eOcrAsrReport, ExternalHfReport } from "@/lib/types";
 
 interface Props {
   initialReport: BenchmarkReport;
   initialE2eReport: E2eOcrAsrReport | null;
+  initialExternalHfReport?: ExternalHfReport | null;
 }
 
-export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
+export function BenchmarksClient({
+  initialReport,
+  initialE2eReport,
+  initialExternalHfReport = null,
+}: Props) {
   const [report, setReport] = useState<BenchmarkReport>(initialReport);
   const [e2eReport, setE2eReport] = useState<E2eOcrAsrReport | null>(initialE2eReport);
+  const [externalHfReport, setExternalHfReport] = useState<ExternalHfReport | null>(
+    initialExternalHfReport
+  );
   const [running, setRunning] = useState(false);
   const [lastElapsedMs, setLastElapsedMs] = useState<number | null>(null);
   const [familyFilter, setFamilyFilter] = useState<string>("all");
   const [e2eTab, setE2eTab] = useState<"images" | "audio">("images");
+  const [extTab, setExtTab] = useState<"breakdown" | "cases">("breakdown");
   const [runError, setRunError] = useState<string | null>(null);
 
   const rerunSuite = async () => {
@@ -51,6 +60,7 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
       }
       setReport(data.report);
       if (data.e2eOcrAsr) setE2eReport(data.e2eOcrAsr);
+      if (data.externalHf) setExternalHfReport(data.externalHf);
       setLastElapsedMs(data.totalElapsedMs);
     } catch (err) {
       setRunError(err instanceof Error ? err.message : "Network error while running suite");
@@ -60,7 +70,11 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
   };
 
   const downloadReport = () => {
-    const payload = { ...report, ...(e2eReport ? { e2eOcrAsr: e2eReport } : {}) };
+    const payload = {
+      ...report,
+      ...(e2eReport ? { e2eOcrAsr: e2eReport } : {}),
+      ...(externalHfReport ? { externalHf: externalHfReport } : {}),
+    };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json;charset=utf-8",
     });
@@ -170,7 +184,8 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
           </h1>
           <p className="type-body text-muted mt-0.5">
             500-bill seeded synthetic rule-core suite ({report.seed}), executed live OCR + Groq Whisper
-            ASR end-to-end lab study, 5-subgroup launch gate, and 50-attack red-team audit.
+            ASR end-to-end lab study, 49-bill external third-party benchmark, 5-subgroup launch gate,
+            and 50-attack red-team audit.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -214,6 +229,19 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
                   Hinglish audio clips
                 </span>
                 )
+              </>
+            ) : null}
+            {externalHfReport ? (
+              <>
+                {" "}
+                plus{" "}
+                <span className="font-code text-ink">
+                  {externalHfReport.overallSummary.totalCases} unseen third-party bills
+                </span>{" "}
+                from{" "}
+                <span className="font-code text-ink">
+                  {externalHfReport.attribution.dataset} ({externalHfReport.attribution.license})
+                </span>
               </>
             ) : null}
             . Live 10-store Bengaluru field pilot:{" "}
@@ -699,6 +727,345 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Independent Third-Party Unseen Benchmark (Divya52/indian-gst-invoices, CC BY 4.0) */}
+      {externalHfReport ? (
+        <div className="app-card p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h2 className="type-section text-ink flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-cobalt" />
+                Independent Third-Party Benchmark ({externalHfReport.attribution.dataset},{" "}
+                {externalHfReport.attribution.license}, commit{" "}
+                {externalHfReport.attribution.datasetCommit.slice(0, 8)},{" "}
+                {externalHfReport.overallSummary.totalCases} Unseen Bills)
+              </h2>
+              <p className="type-meta text-muted mt-0.5">
+                Live HTTPS round-trip against{" "}
+                <span className="font-code text-ink">{externalHfReport.targetBaseUrl}</span> · commit{" "}
+                <span className="font-code text-ink">
+                  {externalHfReport.targetCodeCommit.slice(0, 7)}
+                </span>{" "}
+                · <span className="font-code">{externalHfReport.runId}</span> ·{" "}
+                {externalHfReport.overallSummary.enginesObserved.join(", ")} · zero dataset tuning
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`type-pill px-2 py-0.5 rounded ${
+                  externalHfReport.cleanSummary.promptGuardFalsePositiveCount === 0
+                    ? "pill-success"
+                    : "pill-danger"
+                }`}
+              >
+                {externalHfReport.cleanSummary.promptGuardFalsePositiveCount}/
+                {externalHfReport.cleanSummary.totalCases} Prompt-Guard FP
+              </span>
+              <span className="pill-warning type-pill px-2 py-0.5 rounded">
+                10-Store Pilot: Not Run (Gate 5 Hold)
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="rounded-lg border border-line bg-subtle/60 p-3">
+              <div className="type-kpi-label text-faint">
+                Overall ({externalHfReport.overallSummary.totalCases} Unseen Bills)
+              </div>
+              <div className="type-section numeral text-ink mt-1">
+                {externalHfReport.overallSummary.grandTotalExactMatchPct}% (
+                {externalHfReport.overallSummary.grandTotalExactCount}/
+                {externalHfReport.overallSummary.totalCases}) Grand Total
+              </div>
+              <div className="type-meta text-muted mt-0.5 leading-snug">
+                Clarity {externalHfReport.overallSummary.clarityPassRatePct}% (
+                {externalHfReport.overallSummary.clarityPassedCount}/
+                {externalHfReport.overallSummary.totalCases}) · GSTIN{" "}
+                {externalHfReport.overallSummary.supplierGstinExactMatchPct}% (
+                {externalHfReport.overallSummary.supplierGstinMatchedCount}/
+                {externalHfReport.overallSummary.totalCases}) · Lines{" "}
+                {externalHfReport.overallSummary.lineCountRecallPct.toFixed(1)}% (
+                {externalHfReport.overallSummary.extractedLineCount}/
+                {externalHfReport.overallSummary.expectedLineCount}) · API p50{" "}
+                {externalHfReport.overallSummary.apiWallClockP50Ms} ms / p95{" "}
+                {externalHfReport.overallSummary.apiWallClockP95Ms} ms · Server OCR p50{" "}
+                {externalHfReport.overallSummary.serverOcrLatencyP50Ms} ms
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-subtle/60 p-3">
+              <div className="type-kpi-label text-faint">
+                Clean Split ({externalHfReport.cleanSummary.syntheticCases} Synth +{" "}
+                {externalHfReport.cleanSummary.regionalCases} Reg)
+              </div>
+              <div className="type-section numeral text-ink mt-1">
+                {externalHfReport.cleanSummary.grandTotalExactMatchPct}% (
+                {externalHfReport.cleanSummary.grandTotalExactCount}/
+                {externalHfReport.cleanSummary.totalCases}) Grand Total
+              </div>
+              <div className="type-meta text-muted mt-0.5 leading-snug">
+                Synth {externalHfReport.cleanSummary.bySplit.synthetic?.grandTotalExactMatchPct ?? 0}% (
+                {externalHfReport.cleanSummary.bySplit.synthetic?.grandTotalExactCount ?? 0}/
+                {externalHfReport.cleanSummary.bySplit.synthetic?.totalCases ?? 0}) · Reg{" "}
+                {externalHfReport.cleanSummary.bySplit.regional?.grandTotalExactMatchPct ?? 0}% (
+                {externalHfReport.cleanSummary.bySplit.regional?.grandTotalExactCount ?? 0}/
+                {externalHfReport.cleanSummary.bySplit.regional?.totalCases ?? 0}) ·{" "}
+                {externalHfReport.cleanSummary.promptGuardFalsePositiveCount}/
+                {externalHfReport.cleanSummary.totalCases} Guard FP ·{" "}
+                {externalHfReport.cleanSummary.cleanArithmeticFpCount}/
+                {externalHfReport.cleanSummary.totalCases} (
+                {externalHfReport.cleanSummary.cleanArithmeticFpRatePct}%) Arith FP vs printed math
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-subtle/60 p-3">
+              <div className="type-kpi-label text-faint">Clean by Degradation Level</div>
+              <div className="type-section numeral text-ink mt-1">
+                Digital {externalHfReport.cleanSummary.byDegradationLevel.clean?.grandTotalExactCount ?? 0}/
+                {externalHfReport.cleanSummary.byDegradationLevel.clean?.totalCases ?? 0} (
+                {externalHfReport.cleanSummary.byDegradationLevel.clean?.grandTotalExactMatchPct ?? 0}% GT)
+              </div>
+              <div className="type-meta text-muted mt-0.5 leading-snug">
+                Digital:{" "}
+                {externalHfReport.cleanSummary.byDegradationLevel.clean?.supplierGstinExactMatchPct ?? 0}%
+                GSTIN /{" "}
+                {externalHfReport.cleanSummary.byDegradationLevel.clean?.lineCountRecallPct ?? 0}% lines /{" "}
+                {externalHfReport.cleanSummary.byDegradationLevel.clean?.cleanArithmeticFpRatePct ?? 0}%
+                arith FP · Scan (
+                {externalHfReport.cleanSummary.byDegradationLevel.scan?.totalCases ?? 0}):{" "}
+                {externalHfReport.cleanSummary.byDegradationLevel.scan?.grandTotalExactMatchPct ?? 0}% GT /{" "}
+                {externalHfReport.cleanSummary.byDegradationLevel.scan?.lineCountRecallPct ?? 0}% lines /{" "}
+                {externalHfReport.cleanSummary.byDegradationLevel.scan?.cleanArithmeticFpRatePct ?? 0}%
+                arith FP · Noisy Photo (
+                {externalHfReport.cleanSummary.byDegradationLevel.photo?.totalCases ?? 0}):{" "}
+                {externalHfReport.cleanSummary.byDegradationLevel.photo?.grandTotalExactMatchPct ?? 0}% GT /{" "}
+                {externalHfReport.cleanSummary.byDegradationLevel.photo?.lineCountRecallPct ?? 0}% lines
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-line bg-subtle/60 p-3">
+              <div className="type-kpi-label text-faint">
+                Visual Injections ({externalHfReport.injectionSummary.totalAttacks} Attacks)
+              </div>
+              <div className="type-section numeral text-ink mt-1">
+                {externalHfReport.injectionSummary.grandTotalPreservedCount}/
+                {externalHfReport.injectionSummary.totalAttacks} (
+                {externalHfReport.injectionSummary.grandTotalPreservedRatePct}%) Preserved
+              </div>
+              <div className="type-meta text-muted mt-0.5 leading-snug">
+                Defeated {externalHfReport.injectionSummary.attackDefeatedCount}/
+                {externalHfReport.injectionSummary.totalAttacks} (
+                {externalHfReport.injectionSummary.attackDefeatedRatePct}%) · Guard{" "}
+                {externalHfReport.injectionSummary.promptGuardDetectedCount}/
+                {externalHfReport.injectionSummary.totalAttacks} (
+                {externalHfReport.injectionSummary.promptGuardDetectedRatePct}%):{" "}
+                {externalHfReport.injectionSummary.byAttackStyle
+                  .map(
+                    (s) =>
+                      `${s.attackStyle} ${s.promptGuardDetected}/${s.total} (${s.promptGuardDetectedPct}%)`
+                  )
+                  .join(" · ")}{" "}
+                (BigInt math isolates pixels from LLMs)
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex rounded-lg border border-line bg-subtle p-0.5">
+              <button
+                type="button"
+                onClick={() => setExtTab("breakdown")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md type-pill cursor-pointer ${
+                  extTab === "breakdown" ? "bg-surface text-ink shadow-xs" : "text-muted hover:text-ink"
+                }`}
+              >
+                <ShieldAlert className="w-3.5 h-3.5" />
+                Degradation &amp; Attack Breakdown
+              </button>
+              <button
+                type="button"
+                onClick={() => setExtTab("cases")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md type-pill cursor-pointer ${
+                  extTab === "cases" ? "bg-surface text-ink shadow-xs" : "text-muted hover:text-ink"
+                }`}
+              >
+                <ScanText className="w-3.5 h-3.5" />
+                All {externalHfReport.results.length} Unseen Bills
+              </button>
+            </div>
+            <span className="type-meta font-code text-faint">
+              Executed {externalHfReport.executedAtIso}
+            </span>
+          </div>
+
+          {extTab === "breakdown" ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="overflow-x-auto rounded-lg border border-line">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-line bg-subtle text-faint">
+                      <th className="py-2 px-3 type-table-head">Clean Bucket</th>
+                      <th className="py-2 px-3 type-table-head text-right">Bills</th>
+                      <th className="py-2 px-3 type-table-head text-right">Grand Total</th>
+                      <th className="py-2 px-3 type-table-head text-right">GSTIN</th>
+                      <th className="py-2 px-3 type-table-head text-right">Lines</th>
+                      <th className="py-2 px-3 type-table-head text-right">Arith FP</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {[
+                      {
+                        label: "Clean Digital",
+                        row: externalHfReport.cleanSummary.byDegradationLevel.clean,
+                      },
+                      {
+                        label: "Scanned Print",
+                        row: externalHfReport.cleanSummary.byDegradationLevel.scan,
+                      },
+                      {
+                        label: "Noisy Photo",
+                        row: externalHfReport.cleanSummary.byDegradationLevel.photo,
+                      },
+                      {
+                        label: "Synthetic Split",
+                        row: externalHfReport.cleanSummary.bySplit.synthetic,
+                      },
+                      {
+                        label: "Regional Split",
+                        row: externalHfReport.cleanSummary.bySplit.regional,
+                      },
+                    ]
+                      .filter((entry) => Boolean(entry.row))
+                      .map(({ label, row }) => (
+                        <tr key={label} className="hover:bg-subtle/60">
+                          <td className="py-2 px-3 type-table-cell text-ink font-medium whitespace-nowrap">
+                            {label}
+                          </td>
+                          <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                            {row.totalCases}
+                          </td>
+                          <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                            {row.grandTotalExactMatchPct}% ({row.grandTotalExactCount}/{row.totalCases})
+                          </td>
+                          <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                            {row.supplierGstinExactMatchPct}%
+                          </td>
+                          <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                            {row.lineCountRecallPct}%
+                          </td>
+                          <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                            {row.cleanArithmeticFpRatePct}%
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border border-line">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-line bg-subtle text-faint">
+                      <th className="py-2 px-3 type-table-head">Injection Style</th>
+                      <th className="py-2 px-3 type-table-head text-right">Attacks</th>
+                      <th className="py-2 px-3 type-table-head text-right">Guard Detect</th>
+                      <th className="py-2 px-3 type-table-head text-right">Total Preserved</th>
+                      <th className="py-2 px-3 type-table-head text-right">Defeated</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {externalHfReport.injectionSummary.byAttackStyle.map((styleRow) => (
+                      <tr key={styleRow.attackStyle} className="hover:bg-subtle/60">
+                        <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                          {styleRow.attackStyle}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                          {styleRow.total}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                          {styleRow.promptGuardDetected}/{styleRow.total} ({styleRow.promptGuardDetectedPct}%)
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                          {styleRow.grandTotalPreserved}/{styleRow.total} (
+                          {styleRow.grandTotalPreservedPct}%)
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                          <span
+                            className={`type-pill px-2 py-0.5 rounded ${
+                              styleRow.attackDefeated === styleRow.total
+                                ? "pill-success"
+                                : "pill-warning"
+                            }`}
+                          >
+                            {styleRow.attackDefeated}/{styleRow.total} ({styleRow.attackDefeatedPct}%)
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-line max-h-80 overflow-y-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-subtle z-10">
+                  <tr className="border-b border-line text-faint">
+                    <th className="py-2 px-3 type-table-head">Case ID</th>
+                    <th className="py-2 px-3 type-table-head">Split / Degradation</th>
+                    <th className="py-2 px-3 type-table-head text-right">Clarity</th>
+                    <th className="py-2 px-3 type-table-head text-right">Lines</th>
+                    <th className="py-2 px-3 type-table-head text-right">API Round-Trip</th>
+                    <th className="py-2 px-3 type-table-head text-right">Outcome</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {externalHfReport.results.map((row) => {
+                    const isInj = row.attack !== null;
+                    const pass = isInj
+                      ? Boolean(row.attackDefeated)
+                      : row.grandTotalMatched && !row.hasArithmeticMismatch;
+                    return (
+                      <tr key={row.caseId} className="hover:bg-subtle/60">
+                        <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                          {row.caseId}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-muted whitespace-nowrap">
+                          {isInj
+                            ? `${row.attack} (${row.attackStyle ?? "unknown"})`
+                            : `${row.config} · ${row.level}`}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                          {row.clarityScore}/255
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                          {row.extractedLineCount}/{row.expectedLineCount}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                          {row.wallClockMs} ms
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                          <span className={`type-pill px-2 py-0.5 rounded ${pass ? "pill-success" : "pill-warning"}`}>
+                            {isInj
+                              ? row.attackDefeated
+                                ? row.promptGuardBlocked
+                                  ? "Blocked"
+                                  : "Math Safe"
+                                : "Miss"
+                              : row.grandTotalMatched
+                                ? "GT Match"
+                                : "Partial"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

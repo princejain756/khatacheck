@@ -446,3 +446,137 @@ export interface E2eOcrAsrReport {
   imageResults: E2eImageCaseResult[];
   audioResults: E2eAudioCaseResult[];
 }
+
+export interface ExternalHfMetricsBucket {
+  totalCases: number;
+  clarityPassedCount: number;
+  clarityPassRatePct: number;
+  grandTotalExactCount: number;
+  grandTotalExactMatchPct: number;
+  supplierGstinMatchedCount: number;
+  supplierGstinExactMatchPct: number;
+  expectedLineCount: number;
+  extractedLineCount: number;
+  lineCountRecallPct: number;
+  printedMathValidLabelsCount: number;
+  cleanArithmeticFpCount: number;
+  cleanArithmeticFpRatePct: number;
+  promptGuardFalsePositiveCount: number;
+  apiWallClockP50Ms: number;
+  apiWallClockP95Ms: number;
+  serverOcrLatencyP50Ms: number;
+  serverOcrLatencyP95Ms: number;
+}
+
+export interface ExternalHfAttackStyleSummary {
+  attackStyle: string;
+  total: number;
+  promptGuardDetected: number;
+  promptGuardDetectedPct: number;
+  grandTotalPreserved: number;
+  grandTotalPreservedPct: number;
+  attackDefeated: number;
+  attackDefeatedPct: number;
+}
+
+export interface ExternalHfAttackFamilySummary {
+  attack: string;
+  total: number;
+  promptGuardDetected: number;
+  grandTotalPreserved: number;
+  attackDefeated: number;
+}
+
+export interface ExternalHfCaseResult {
+  caseId: string;
+  config: string;
+  rowIdx: number;
+  level: string;
+  layout: string;
+  script: string | null;
+  supplyType: string;
+  attack: string | null;
+  attackStyle: string | null;
+  attackTarget: string | null;
+  httpStatus: number;
+  extractKind: string;
+  clarityScore: number;
+  clarityMethod: string;
+  ocrEngine: string;
+  usedLlmStructurer: boolean;
+  ocrLatencyMs: number;
+  wallClockMs: number;
+  abstainedClarity: boolean;
+  expectedLineCount: number;
+  extractedLineCount: number;
+  vendorGstinMatched: boolean;
+  grandTotalMatched: boolean;
+  printedMathValidLabel: boolean | null;
+  hasArithmeticMismatch: boolean;
+  arithmeticRuleIds: string[];
+  promptGuardBlocked: boolean;
+  promptGuardRuleIds: string[];
+  grandTotalPreserved: boolean | null;
+  attackDefeated: boolean | null;
+}
+
+export interface ExternalHfReport {
+  runId: string;
+  executedAtIso: string;
+  targetBaseUrl: string;
+  targetCodeCommit: string;
+  attribution: {
+    dataset: string;
+    license: string;
+    datasetCommit: string;
+    samplingProtocol: string;
+  };
+  overallSummary: {
+    totalCases: number;
+    cleanCases: number;
+    syntheticCases: number;
+    regionalCases: number;
+    injectionCases: number;
+    clarityPassedCount: number;
+    clarityPassRatePct: number;
+    grandTotalExactCount: number;
+    grandTotalExactMatchPct: number;
+    supplierGstinMatchedCount: number;
+    supplierGstinExactMatchPct: number;
+    expectedLineCount: number;
+    extractedLineCount: number;
+    lineCountRecallPct: number;
+    apiWallClockP50Ms: number;
+    apiWallClockP95Ms: number;
+    apiWallClockMaxMs: number;
+    serverOcrLatencyP50Ms: number;
+    serverOcrLatencyP95Ms: number;
+    serverOcrLatencyMaxMs: number;
+    enginesObserved: string[];
+  };
+  cleanSummary: ExternalHfMetricsBucket & {
+    syntheticCases: number;
+    regionalCases: number;
+    bySplit: Record<string, ExternalHfMetricsBucket>;
+    byDegradationLevel: Record<string, ExternalHfMetricsBucket>;
+  };
+  injectionSummary: {
+    totalAttacks: number;
+    clarityPassedCount: number;
+    clarityPassRatePct: number;
+    grandTotalExactCount: number;
+    grandTotalExactMatchPct: number;
+    supplierGstinMatchedCount: number;
+    supplierGstinExactMatchPct: number;
+    lineCountRecallPct: number;
+    promptGuardDetectedCount: number;
+    promptGuardDetectedRatePct: number;
+    grandTotalPreservedCount: number;
+    grandTotalPreservedRatePct: number;
+    attackDefeatedCount: number;
+    attackDefeatedRatePct: number;
+    byAttackStyle: ExternalHfAttackStyleSummary[];
+    byAttackFamily: ExternalHfAttackFamilySummary[];
+  };
+  results: ExternalHfCaseResult[];
+}
