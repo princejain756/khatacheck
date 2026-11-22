@@ -377,12 +377,19 @@ export function computeAutomationBiasMonitor(events: AuditLedgerEvent[]): Automa
 
   const minThreshold = 50;
   const thresholdMet = completedCount >= minThreshold;
+  const exactApprovalPct = completedCount > 0 ? (approvedCount * 100) / completedCount : 0;
   const alertActive = thresholdMet && approvedCount * 100 > 95 * completedCount && medianDwellMs > 0 && medianDwellMs < 3000;
+  const alertApprovalRateLabel =
+    approvalRatePct > 95
+      ? String(approvalRatePct)
+      : Number(exactApprovalPct.toFixed(2)) > 95
+        ? exactApprovalPct.toFixed(2)
+        : exactApprovalPct.toFixed(3);
 
   let statusText = `Formal alert suppressed below ${minThreshold} completed decisions (n=${completedCount}).`;
   if (thresholdMet) {
     statusText = alertActive
-      ? `AUTOMATION BIAS WARNING: Approval rate ${approvalRatePct}% (>95%) with ${(medianDwellMs / 1000).toFixed(2)}s median dwell (<3.0s). Human review warning raised.`
+      ? `AUTOMATION BIAS WARNING: Approval rate ${alertApprovalRateLabel}% (>95%) with ${(medianDwellMs / 1000).toFixed(2)}s median dwell (<3.0s). Human review warning raised.`
       : `Healthy human oversight: Approval rate ${approvalRatePct}% and ${(medianDwellMs / 1000).toFixed(1)}s median foreground dwell across n=${completedCount} decisions.`;
   }
 
