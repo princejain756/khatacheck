@@ -1052,7 +1052,39 @@ test("Regression checks for voice out-of denominators, tax split and header tota
   assert.equal(parsedBuyerOnly.vendorGstin, "");
   assert.equal(parsedBuyerOnly.buyerGstin, "29GANKS4501D1ZS");
 
-  // 4. Spoken-form emails scrubbed cleanly before egress
+  const splitGlyph16 = parseOcrInvoiceText(
+    [
+      "Supplier (From): Sahyadri Meditech Pvt Ltd",
+      "GSTIN : 29SAHYA1492F12ZW",
+      "Buyer (To): Ganesh Kirana Stores",
+      "GSTIN : 29GANKS4501D1ZS",
+      "1 | Cough Syrup | 3003 | 10 | btl | 110.00 | 12% | 1232.00",
+    ].join("\n"),
+    { pageConfidence: 92 }
+  );
+  assert.equal(splitGlyph16.vendorGstin, "29SAHYA1492F1ZW");
+
+  const homoglyphZeroO = parseOcrInvoiceText(
+    [
+      "Supplier (From): Kaveri Pharma",
+      "GSTIN : 29KAVPH3104B1Z0",
+      "1 | Surgical Gloves | 4015 | 10 | box | 240.00 | 12% | 2688.00",
+    ].join("\n"),
+    { pageConfidence: 92 }
+  );
+  assert.equal(homoglyphZeroO.vendorGstin, "29KAVPH3104B1ZO");
+
+  const tamperedInvalidOcrGstin = parseOcrInvoiceText(
+    [
+      "Supplier (From): Bad Checksum Supplier",
+      "GSTIN : 29AAAAA0000A1ZX",
+      "1 | Sugar | 1701 | 10 | kg | 42.00 | 5% | 441.00",
+    ].join("\n"),
+    { pageConfidence: 92 }
+  );
+  assert.equal(tamperedInvalidOcrGstin.vendorGstin, "29AAAAA0000A1ZX");
+
+  // 4. Spoken-form emails scrubbed cleanly before egress & redaction tags never tie SKU matching
   const spokenEmail = scrubPiiForModelEgress(
     "5 kg of Arhar Dhal are short and missing. Customer email ramesh.sharma at gmail.com."
   );
@@ -1062,6 +1094,11 @@ test("Regression checks for voice out-of denominators, tax split and header tota
     spokenEmail.scrubbedText,
     "5 kg of Arhar Dhal are short and missing. Customer email [EMAIL_REDACTED]."
   );
+  const redactionSafeVoice = parseVoiceRemarks(spokenEmail.scrubbedText, scn01.invoice.lines);
+  assert.equal(redactionSafeVoice.length, 1);
+  assert.equal(redactionSafeVoice[0].sku, "DAL-TOOR-KG");
+  assert.equal(redactionSafeVoice[0].shortageQty, 5);
+  assert.equal(redactionSafeVoice[0].variancePaise, "61950");
 
   const multiDotSpoken = scrubPiiForModelEgress("Send copy to alice dot lee at company dot co dot in");
   assert.equal(multiDotSpoken.redactionCount, 1);

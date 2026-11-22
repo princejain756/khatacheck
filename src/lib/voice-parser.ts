@@ -256,6 +256,26 @@ function parseQtyToken(tok: string): number | null {
 }
 
 function scoreLineAlias(clauseLower: string, line: InvoiceLineInput): number {
+  const scrubbedClause = clauseLower.replace(/\[[a-z0-9_]+_redacted\]/gi, " ");
+  const clauseWords = new Set(
+    scrubbedClause
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean)
+  );
+  const matchesToken = (tok: string): boolean => {
+    if (clauseWords.has(tok) || clauseWords.has(`${tok}s`) || clauseWords.has(`${tok}es`)) {
+      return true;
+    }
+    if (tok.endsWith("es") && tok.length > 4 && clauseWords.has(tok.slice(0, -2))) {
+      return true;
+    }
+    if (tok.endsWith("s") && tok.length > 3 && clauseWords.has(tok.slice(0, -1))) {
+      return true;
+    }
+    return false;
+  };
+
   const skuToks = line.sku.toLowerCase().split(/[-_\s]+/).filter((w) => w.length >= 3);
   const descToks = line.description
     .toLowerCase()
@@ -265,10 +285,10 @@ function scoreLineAlias(clauseLower: string, line: InvoiceLineInput): number {
 
   let score = 0;
   for (const t of descToks) {
-    if (clauseLower.includes(t)) score += 2;
+    if (matchesToken(t)) score += 2;
   }
   for (const t of skuToks) {
-    if (clauseLower.includes(t)) score += 3;
+    if (matchesToken(t)) score += 3;
   }
   return score;
 }

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { scrubPiiForModelEgress } from "./dpdp-privacy";
 import { CLARITY_MIN_THRESHOLD } from "./engine";
-import { GST_STATE_CODES, lookupHsnRule } from "./gst-rules";
+import { GST_STATE_CODES, computeGstinCheckChar, lookupHsnRule, validateGstin } from "./gst-rules";
 import { type ClarityMethod, scoreImageClarity } from "./image-clarity";
 import { bigIntAbs, halfUpDiv, parseINRToPaise } from "./money";
 import { scanUntrustedInvoiceText } from "./prompt-guard";
@@ -557,6 +557,58 @@ export interface DeterministicOcrParseResult {
   confidenceScore: number;
 }
 
+const OCR_CHECK_HOMOGLYPHS: Readonly<Record<string, readonly string[]>> = {
+  "0": ["O", "Q"],
+  O: ["0"],
+  Q: ["0"],
+  "1": ["I", "L"],
+  I: ["1"],
+  L: ["1"],
+  "5": ["S"],
+  S: ["5"],
+  "8": ["B"],
+  B: ["8"],
+};
+
+function repairOcrGstinToken(rawToken: string): string {
+  const cand = rawToken.toUpperCase().replace(/[^0-9A-Z]/g, "");
+  const strictSingle = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+  const repairCheckHomoglyph = (token15: string): string => {
+    if (validateGstin(token15).valid) return token15;
+    if (strictSingle.test(token15)) {
+      const expected = computeGstinCheckChar(token15.slice(0, 14));
+      const allowed = OCR_CHECK_HOMOGLYPHS[token15[14]];
+      if (expected && allowed && allowed.includes(expected)) {
+        return token15.slice(0, 14) + expected;
+      }
+    }
+    return token15;
+  };
+
+  if (cand.length === 15) {
+    return repairCheckHomoglyph(cand);
+  }
+
+  // Tesseract can split glyphs near the entity/Z separator (e.g. 1Z -> 12Z, G1 -> G61)
+  if (cand.length === 16) {
+    const validCandidates = new Set<string>();
+    for (const pos of [11, 12, 13]) {
+      const shortened = cand.slice(0, pos) + cand.slice(pos + 1);
+      if (!strictSingle.test(shortened)) continue;
+      const fixed = repairCheckHomoglyph(shortened);
+      if (validateGstin(fixed).valid) {
+        validCandidates.add(fixed);
+      }
+    }
+    if (validCandidates.size === 1) {
+      return [...validCandidates][0];
+    }
+  }
+
+  return "";
+}
+
 function extractGstins(lines: string[]): { vendorGstin: string; buyerGstin: string } {
   const strictRe = /\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z])\b/g;
   const labelRe = /\bGSTIN\b\s*[:=\-]?\s*([0-9A-Z]{14,16})/i;
@@ -576,12 +628,18 @@ function extractGstins(lines: string[]): { vendorGstin: string; buyerGstin: stri
 
     const foundInLine: string[] = [];
     for (const m of upper.matchAll(strictRe)) {
-      foundInLine.push(m[1]);
+      const normalized = repairOcrGstinToken(m[1]) || m[1];
+      if (!foundInLine.includes(normalized)) {
+        foundInLine.push(normalized);
+      }
     }
     if (foundInLine.length === 0) {
       const lm = labelRe.exec(upper);
-      if (lm && lm[1].length === 15) {
-        foundInLine.push(lm[1]);
+      if (lm) {
+        const repaired = repairOcrGstinToken(lm[1]);
+        if (repaired.length === 15) {
+          foundInLine.push(repaired);
+        }
       }
     }
 
