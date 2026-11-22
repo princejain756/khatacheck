@@ -782,3 +782,45 @@ test("Voice parser normalizes units and routes mismatched spoken units to unmatc
   assert.equal(pharmaHits[0].shortageQty, 8);
   assert.equal(pharmaHits[0].variancePaise, "113280");
 });
+
+test("Spelled-out sub-units like milligrams and millilitres route mismatches to unmatched_manual with zero variance", () => {
+  assert.equal(canonicalizeVoiceUnit("milligram"), "mg");
+  assert.equal(canonicalizeVoiceUnit("milligrams"), "mg");
+  assert.equal(canonicalizeVoiceUnit("millilitre"), "ml");
+  assert.equal(canonicalizeVoiceUnit("millilitres"), "ml");
+  assert.equal(canonicalizeVoiceUnit("kilogrammes"), "kg");
+  assert.equal(canonicalizeVoiceUnit("tonnes"), "ton");
+  assert.equal(canonicalizeVoiceUnit("pouches"), "pouch");
+
+  const scn01 = DEMO_SCENARIOS.find((s) => s.id === "SCN-01-KIRANA-SHORT");
+  assert.ok(scn01);
+  const kirana = scn01.invoice;
+
+  const mgHits = parseVoiceRemarks("5 milligrams of Arhar Dal kum hai", kirana.lines);
+  assert.equal(mgHits.length, 1);
+  assert.equal(mgHits[0].kind, "unmatched_manual");
+  assert.equal(mgHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(mgHits[0].shortageQty, 5);
+  assert.equal(mgHits[0].variancePaise, "0");
+
+  const mgVerify = verifyInvoicePipeline(
+    { ...kirana, voiceTranscriptRaw: "5 milligrams of Arhar Dal kum hai" },
+    { vendorHistory: DEMO_VENDOR_HISTORY, priorBills: DEMO_PRIOR_BILLS, enablePiiScrub: true }
+  );
+  assert.equal(mgVerify.voiceMatches[0]?.kind, "unmatched_manual");
+  assert.equal(mgVerify.faults.filter((f) => f.category === "voice_shortage").length, 0);
+
+  const mlHits = parseVoiceRemarks("5 millilitres of oil missing", kirana.lines);
+  assert.equal(mlHits.length, 1);
+  assert.equal(mlHits[0].kind, "unmatched_manual");
+  assert.equal(mlHits[0].sku, "OIL-SUNFLOWER-LTR");
+  assert.equal(mlHits[0].shortageQty, 5);
+  assert.equal(mlHits[0].variancePaise, "0");
+
+  const mlVerify = verifyInvoicePipeline(
+    { ...kirana, voiceTranscriptRaw: "5 millilitres of oil missing" },
+    { vendorHistory: DEMO_VENDOR_HISTORY, priorBills: DEMO_PRIOR_BILLS, enablePiiScrub: true }
+  );
+  assert.equal(mlVerify.voiceMatches[0]?.kind, "unmatched_manual");
+  assert.equal(mlVerify.faults.filter((f) => f.category === "voice_shortage").length, 0);
+});

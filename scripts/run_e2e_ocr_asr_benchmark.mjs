@@ -26,8 +26,11 @@ async function resolveTargetCodeCommit(baseUrl) {
     const resp = await fetch(`${baseUrl}/api/health`, { cache: "no-store" });
     if (resp.ok) {
       const data = await resp.json();
-      if (typeof data.commit === "string" && data.commit.trim()) {
-        return data.commit.trim();
+      if (typeof data.commit === "string") {
+        const commit = data.commit.trim();
+        if (commit && commit.toLowerCase() !== "unknown") {
+          return commit;
+        }
       }
     }
   } catch (err) {
