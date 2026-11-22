@@ -90,9 +90,29 @@ const CANONICAL_UNITS: Record<string, string> = {
   rolls: "roll",
   unit: "unit",
   units: "unit",
+  g: "gram",
+  gm: "gram",
+  gms: "gram",
   gram: "gram",
   grams: "gram",
+  mg: "mg",
   ml: "ml",
+  quintal: "quintal",
+  quintals: "quintal",
+  qtl: "quintal",
+  dozen: "dozen",
+  dozens: "dozen",
+  dz: "dozen",
+  pair: "pair",
+  pairs: "pair",
+  can: "can",
+  cans: "can",
+  sack: "sack",
+  sacks: "sack",
+  crate: "crate",
+  crates: "crate",
+  set: "set",
+  sets: "set",
 };
 
 const UNIT_WORDS = new Set(Object.keys(CANONICAL_UNITS));
@@ -272,30 +292,76 @@ export function parseVoiceRemarks(
 
     // Pattern 3: Shortage cues + qty + unit
     if (SHORTAGE_CUES.test(clause)) {
+      const matched = findBestMatchingLine(clause, lines);
       const tokens = clause.toLowerCase().split(/\s+/);
-      let foundQty: number | null = null;
-      let foundUnit: string | null = null;
+      const cleanToken = (t: string | undefined): string =>
+        (t ?? "").replace(/^[(\["']+|[)\]"'.,;:!?]+$/g, "");
+      const unitPairs: Array<{ qty: number; unit: string }> = [];
+      const consumedIdx = new Set<number>();
+      let fallbackQty: number | null = null;
+
       for (let i = 0; i < tokens.length; i += 1) {
-        const q = parseQtyToken(tokens[i]);
+        if (consumedIdx.has(i)) continue;
+        const tok = cleanToken(tokens[i]);
+        const attached = /^(\d+(?:\.\d+)?)([a-z]+)$/.exec(tok);
+        if (attached && UNIT_WORDS.has(attached[2])) {
+          const aq = Number(attached[1]);
+          if (Number.isFinite(aq) && aq > 0 && aq <= 10000) {
+            unitPairs.push({ qty: aq, unit: attached[2] });
+            consumedIdx.add(i);
+            continue;
+          }
+        }
+        const q = parseQtyToken(tok);
         if (q !== null) {
-          const next = tokens[i + 1]?.replace(/[.,;:!?]/g, "");
-          const prev = tokens[i - 1]?.replace(/[.,;:!?]/g, "");
-          if (next && UNIT_WORDS.has(next)) {
-            foundQty = q;
-            foundUnit = next;
-            break;
+          const next = cleanToken(tokens[i + 1]);
+          const prev = cleanToken(tokens[i - 1]);
+          if (next && UNIT_WORDS.has(next) && !consumedIdx.has(i + 1)) {
+            unitPairs.push({ qty: q, unit: next });
+            consumedIdx.add(i);
+            consumedIdx.add(i + 1);
+            continue;
           }
-          if (prev && UNIT_WORDS.has(prev)) {
-            foundQty = q;
-            foundUnit = prev;
-            break;
+          if (prev && UNIT_WORDS.has(prev) && !consumedIdx.has(i - 1)) {
+            unitPairs.push({ qty: q, unit: prev });
+            consumedIdx.add(i);
+            consumedIdx.add(i - 1);
+            continue;
           }
-          if (foundQty === null) foundQty = q;
+          if (fallbackQty === null) fallbackQty = q;
         }
       }
 
+      let foundQty: number | null = null;
+      let foundUnit: string | null = null;
+      if (matched && unitPairs.length > 0) {
+        const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);
+        const exactUnitMatch = unitPairs.find(
+          (p) => canonicalizeVoiceUnit(p.unit) === lineUnitCanon
+        );
+        if (exactUnitMatch) {
+          foundQty = exactUnitMatch.qty;
+          foundUnit = exactUnitMatch.unit;
+        } else {
+          const descCompact = matched.description.toLowerCase().replace(/[^a-z0-9]/g, "");
+          const nonPackPair = unitPairs.find((p) => {
+            const rawUnit = p.unit.toLowerCase();
+            const canon = canonicalizeVoiceUnit(rawUnit);
+            const candidates = [rawUnit, canon, canon === "gram" ? "g" : null].filter(Boolean);
+            return !candidates.some((u) => descCompact.includes(`${p.qty}${u}`));
+          });
+          const chosen = nonPackPair ?? unitPairs[0];
+          foundQty = chosen.qty;
+          foundUnit = chosen.unit;
+        }
+      } else if (unitPairs.length > 0) {
+        foundQty = unitPairs[0].qty;
+        foundUnit = unitPairs[0].unit;
+      } else {
+        foundQty = fallbackQty;
+      }
+
       if (foundQty !== null && foundQty > 0) {
-        const matched = findBestMatchingLine(clause, lines);
         if (matched) {
           const spokenUnitCanon = canonicalizeVoiceUnit(foundUnit);
           const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);

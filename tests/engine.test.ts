@@ -696,6 +696,10 @@ test("Voice parser normalizes units and routes mismatched spoken units to unmatc
   assert.equal(canonicalizeVoiceUnit("kilograms"), "kg");
   assert.equal(canonicalizeVoiceUnit("packets"), "pkt");
   assert.equal(canonicalizeVoiceUnit("litres"), "ltr");
+  assert.equal(canonicalizeVoiceUnit("g"), "gram");
+  assert.equal(canonicalizeVoiceUnit("gms"), "gram");
+  assert.equal(canonicalizeVoiceUnit("qtl"), "quintal");
+  assert.equal(canonicalizeVoiceUnit("dz"), "dozen");
 
   const scn01 = DEMO_SCENARIOS.find((s) => s.id === "SCN-01-KIRANA-SHORT");
   assert.ok(scn01);
@@ -709,6 +713,14 @@ test("Voice parser normalizes units and routes mismatched spoken units to unmatc
   assert.equal(bagHits[0].variancePaise, "0");
   assert.equal(bagHits[0].confirmationPrompt.includes("Unit mismatch"), true);
 
+  const gramHits = parseVoiceRemarks("5 g of Arhar Dal kum hai", kirana.lines);
+  assert.equal(gramHits.length, 1);
+  assert.equal(gramHits[0].kind, "unmatched_manual");
+  assert.equal(gramHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(gramHits[0].shortageQty, 5);
+  assert.equal(gramHits[0].variancePaise, "0");
+  assert.equal(gramHits[0].confirmationPrompt.includes("Unit mismatch"), true);
+
   const bagVerify = verifyInvoicePipeline(
     { ...kirana, voiceTranscriptRaw: "Five bags of Arhar Dal kum hai" },
     {
@@ -719,6 +731,17 @@ test("Voice parser normalizes units and routes mismatched spoken units to unmatc
   );
   assert.equal(bagVerify.voiceMatches[0]?.kind, "unmatched_manual");
   assert.equal(bagVerify.faults.filter((f) => f.category === "voice_shortage").length, 0);
+
+  const gramVerify = verifyInvoicePipeline(
+    { ...kirana, voiceTranscriptRaw: "5 g of Arhar Dal kum hai" },
+    {
+      vendorHistory: DEMO_VENDOR_HISTORY,
+      priorBills: DEMO_PRIOR_BILLS,
+      enablePiiScrub: true,
+    }
+  );
+  assert.equal(gramVerify.voiceMatches[0]?.kind, "unmatched_manual");
+  assert.equal(gramVerify.faults.filter((f) => f.category === "voice_shortage").length, 0);
 
   const kgHits = parseVoiceRemarks("Five kilograms of Arhar Dal kum hai", kirana.lines);
   assert.equal(kgHits.length, 1);
@@ -736,4 +759,26 @@ test("Voice parser normalizes units and routes mismatched spoken units to unmatc
   assert.equal(chilliHits[0].sku, "SPICE-CHILLI-500G");
   assert.equal(chilliHits[0].shortageQty, 2);
   assert.equal(chilliHits[0].variancePaise, "16720");
+
+  const chilliStrengthBeforeQty = parseVoiceRemarks(
+    "Red Chilli Powder 500 g 2 packets kum hai",
+    kirana.lines
+  );
+  assert.equal(chilliStrengthBeforeQty.length, 1);
+  assert.equal(chilliStrengthBeforeQty[0].kind, "shortage");
+  assert.equal(chilliStrengthBeforeQty[0].sku, "SPICE-CHILLI-500G");
+  assert.equal(chilliStrengthBeforeQty[0].shortageQty, 2);
+  assert.equal(chilliStrengthBeforeQty[0].variancePaise, "16720");
+
+  const scn02 = DEMO_SCENARIOS.find((s) => s.id === "SCN-02-PHARMACY-HSN");
+  assert.ok(scn02);
+  const pharmaHits = parseVoiceRemarks(
+    "Amoxicillin 500 mg 8 strips are short and missing",
+    scn02.invoice.lines
+  );
+  assert.equal(pharmaHits.length, 1);
+  assert.equal(pharmaHits[0].kind, "shortage");
+  assert.equal(pharmaHits[0].sku, "MED-AMOX-STRIP");
+  assert.equal(pharmaHits[0].shortageQty, 8);
+  assert.equal(pharmaHits[0].variancePaise, "113280");
 });

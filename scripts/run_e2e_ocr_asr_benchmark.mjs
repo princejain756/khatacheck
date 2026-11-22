@@ -21,6 +21,7 @@ function resolveRepoPath(relOrAbsPath) {
 }
 
 async function resolveTargetCodeCommit(baseUrl) {
+  const isLocalhost = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(baseUrl);
   try {
     const resp = await fetch(`${baseUrl}/api/health`, { cache: "no-store" });
     if (resp.ok) {
@@ -29,8 +30,16 @@ async function resolveTargetCodeCommit(baseUrl) {
         return data.commit.trim();
       }
     }
-  } catch {
-    // Fall back to local git HEAD when /api/health omits commit SHA
+  } catch (err) {
+    if (!isLocalhost) {
+      throw new Error(
+        `Remote /api/health lookup failed for ${baseUrl}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    // Fall back to local git HEAD only on localhost runs when /api/health is unavailable
+  }
+  if (!isLocalhost) {
+    throw new Error(`Remote ${baseUrl}/api/health did not return a valid commit SHA`);
   }
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
