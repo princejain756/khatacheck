@@ -162,6 +162,14 @@ const CANONICAL_UNITS: Record<string, string> = {
   tubs: "tub",
 };
 
+const CANONICAL_TO_ALIASES: Record<string, string[]> = {};
+for (const [alias, canon] of Object.entries(CANONICAL_UNITS)) {
+  if (!CANONICAL_TO_ALIASES[canon]) {
+    CANONICAL_TO_ALIASES[canon] = [];
+  }
+  CANONICAL_TO_ALIASES[canon].push(alias);
+}
+
 const UNIT_WORDS = new Set(Object.keys(CANONICAL_UNITS));
 
 export function canonicalizeVoiceUnit(raw: string | null | undefined): string | null {
@@ -389,14 +397,8 @@ export function parseVoiceRemarks(
         const isPackDescriptor = (p: { qty: number; unit: string }): boolean => {
           const rawUnit = p.unit.toLowerCase();
           const canon = canonicalizeVoiceUnit(rawUnit);
-          const unitAliases = [
-            rawUnit,
-            canon,
-            canon === "gram" ? "g" : null,
-            canon === "gram" ? "gm" : null,
-            canon === "ltr" ? "l" : null,
-            canon === "ltr" ? "lt" : null,
-          ].filter((u): u is string => Boolean(u));
+          const synonymList = canon && CANONICAL_TO_ALIASES[canon] ? CANONICAL_TO_ALIASES[canon] : [];
+          const unitAliases = [...new Set([rawUnit, canon, ...synonymList].filter((u): u is string => Boolean(u)))];
           const escapedQty = String(p.qty).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
           return unitAliases.some((u) => {
             const escapedUnit = u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -404,14 +406,26 @@ export function parseVoiceRemarks(
           });
         };
         const nonPackPairs = unitPairs.filter((p) => !isPackDescriptor(p));
-        const candidatePairs = nonPackPairs.length > 0 ? nonPackPairs : unitPairs;
-        const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);
-        const exactUnitMatch = candidatePairs.find(
-          (p) => canonicalizeVoiceUnit(p.unit) === lineUnitCanon
-        );
-        const chosen = exactUnitMatch ?? candidatePairs[0];
-        foundQty = chosen.qty;
-        foundUnit = chosen.unit;
+        if (nonPackPairs.length > 0) {
+          const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);
+          const exactUnitMatch = nonPackPairs.find(
+            (p) => canonicalizeVoiceUnit(p.unit) === lineUnitCanon
+          );
+          const chosen = exactUnitMatch ?? nonPackPairs[0];
+          foundQty = chosen.qty;
+          foundUnit = chosen.unit;
+        } else if (fallbackQty !== null) {
+          foundQty = fallbackQty;
+          foundUnit = null;
+        } else {
+          const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);
+          const exactUnitMatch = unitPairs.find(
+            (p) => canonicalizeVoiceUnit(p.unit) === lineUnitCanon
+          );
+          const chosen = exactUnitMatch ?? unitPairs[0];
+          foundQty = chosen.qty;
+          foundUnit = chosen.unit;
+        }
       } else if (unitPairs.length > 0) {
         foundQty = unitPairs[0].qty;
         foundUnit = unitPairs[0].unit;

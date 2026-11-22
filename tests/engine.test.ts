@@ -852,4 +852,25 @@ test("Spelled-out sub-units like milligrams and millilitres route mismatches to 
   assert.equal(boundaryHits.length, 1);
   assert.equal(boundaryHits[0].kind, "shortage");
   assert.equal(boundaryHits[0].shortageQty, 5);
+
+  const kilogramPackLine = { ...kirana.lines[0], description: "Arhar / Toor Dal (1 kilogram bags)" };
+  const synonymPackHits = parseVoiceRemarks("Arhar Dal 1 kg bags had 5 g missing", [kilogramPackLine]);
+  assert.equal(synonymPackHits.length, 1);
+  assert.equal(synonymPackHits[0].kind, "unmatched_manual");
+  assert.equal(synonymPackHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(synonymPackHits[0].shortageQty, 5);
+  assert.equal(synonymPackHits[0].variancePaise, "0");
+
+  const fallbackOverPackHits = parseVoiceRemarks("Arhar Dal 1 kg bags had 2 missing", [packLine]);
+  assert.equal(fallbackOverPackHits.length, 1);
+  assert.equal(fallbackOverPackHits[0].kind, "shortage");
+  assert.equal(fallbackOverPackHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(fallbackOverPackHits[0].shortageQty, 2);
+  assert.equal(fallbackOverPackHits[0].variancePaise, "24780");
+
+  const packAloneHits = parseVoiceRemarks("Arhar Dal 1 kg bags missing", [packLine]);
+  assert.equal(packAloneHits.length, 1);
+  assert.equal(packAloneHits[0].kind, "shortage");
+  assert.equal(packAloneHits[0].shortageQty, 1);
+  assert.equal(packAloneHits[0].variancePaise, "12390");
 });
