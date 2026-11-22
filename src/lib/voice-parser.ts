@@ -211,6 +211,26 @@ export interface ParsedVoiceHit {
 }
 
 const ZERO_NUMBER_WORDS = new Set(["zero", "nil", "shunya", "shoonya"]);
+const ZERO_LINK_WORDS = new Set(["had", "was", "were", "is", "are", "hai", "only", "with"]);
+const ZERO_CODE_PREFIXES = new Set([
+  "batch",
+  "lot",
+  "line",
+  "row",
+  "bill",
+  "inv",
+  "invoice",
+  "item",
+  "code",
+  "sku",
+  "id",
+  "ref",
+  "sr",
+  "no",
+  "number",
+  "page",
+  "serial",
+]);
 
 function isZeroQtyToken(tok: string): boolean {
   const clean = tok.toLowerCase().trim();
@@ -358,7 +378,7 @@ export function parseVoiceRemarks(
       const unitPairs: Array<{ qty: number; unit: string }> = [];
       const consumedIdx = new Set<number>();
       let fallbackQty: number | null = null;
-      let hasExplicitZero = false;
+      let hasExplicitZeroClaim = false;
 
       for (let i = 0; i < tokens.length; i += 1) {
         if (consumedIdx.has(i)) continue;
@@ -367,7 +387,7 @@ export function parseVoiceRemarks(
         if (attached && UNIT_WORDS.has(attached[2])) {
           const aq = Number(attached[1]);
           if (Number.isFinite(aq) && aq === 0) {
-            hasExplicitZero = true;
+            hasExplicitZeroClaim = true;
             consumedIdx.add(i);
             continue;
           }
@@ -378,12 +398,28 @@ export function parseVoiceRemarks(
           }
         }
         if (isZeroQtyToken(tok)) {
-          hasExplicitZero = true;
+          const prev = cleanToken(tokens[i - 1]);
           const next = cleanToken(tokens[i + 1]);
-          if (next && UNIT_WORDS.has(next)) {
-            consumedIdx.add(i + 1);
-          }
+          const nextTwo = next && tokens[i + 2] ? `${next} ${cleanToken(tokens[i + 2])}` : "";
           consumedIdx.add(i);
+          if (prev && ZERO_CODE_PREFIXES.has(prev)) {
+            continue;
+          }
+          if (next && UNIT_WORDS.has(next)) {
+            hasExplicitZeroClaim = true;
+            consumedIdx.add(i + 1);
+          } else if (prev && UNIT_WORDS.has(prev)) {
+            hasExplicitZeroClaim = true;
+            consumedIdx.add(i - 1);
+          } else if (
+            (next && SHORTAGE_CUES.test(next)) ||
+            (nextTwo && SHORTAGE_CUES.test(nextTwo)) ||
+            (prev && SHORTAGE_CUES.test(prev)) ||
+            (prev && ZERO_LINK_WORDS.has(prev)) ||
+            (next && ZERO_LINK_WORDS.has(next))
+          ) {
+            hasExplicitZeroClaim = true;
+          }
           continue;
         }
         const q = parseQtyToken(tok);
@@ -404,6 +440,10 @@ export function parseVoiceRemarks(
           }
           if (fallbackQty === null) fallbackQty = q;
         }
+      }
+
+      if (hasExplicitZeroClaim) {
+        continue;
       }
 
       let foundQty: number | null = null;
@@ -440,9 +480,6 @@ export function parseVoiceRemarks(
           foundUnit = chosen.unit;
         } else if (fallbackQty !== null) {
           foundQty = fallbackQty;
-          foundUnit = null;
-        } else if (hasExplicitZero) {
-          foundQty = 0;
           foundUnit = null;
         } else {
           const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);

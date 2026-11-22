@@ -886,4 +886,22 @@ test("Spelled-out sub-units like milligrams and millilitres route mismatches to 
   assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had 0 missing", [packLine]).length, 0);
   assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had 0kg missing", [packLine]).length, 0);
   assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had nil missing", [packLine]).length, 0);
+
+  const zeroOutOfVer = verifyInvoicePipeline(
+    {
+      ...kirana,
+      voiceTranscriptRaw: "Tata Common Salt 1 kg bags had 0 kg missing out of 20 kg",
+    },
+    { vendorHistory: DEMO_VENDOR_HISTORY, priorBills: DEMO_PRIOR_BILLS, enablePiiScrub: true }
+  );
+  assert.equal(zeroOutOfVer.voiceMatches.length, 0);
+  assert.equal(zeroOutOfVer.faults.filter((f) => f.category === "voice_shortage").length, 0);
+
+  assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had zero missing out of 20 kg", [packLine]).length, 0);
+
+  const batchCodeHits = parseVoiceRemarks("Arhar Dal batch 0 had 2 kg missing", [packLine]);
+  assert.equal(batchCodeHits.length, 1);
+  assert.equal(batchCodeHits[0].kind, "shortage");
+  assert.equal(batchCodeHits[0].shortageQty, 2);
+  assert.equal(batchCodeHits[0].variancePaise, "24780");
 });
