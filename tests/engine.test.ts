@@ -1145,6 +1145,22 @@ test("Regression checks for voice out-of denominators, tax split and header tota
   assert.equal(gluedHsnRow.lines[1].hsnCode, "1701");
   assert.equal(gluedHsnRow.lines[1].qtyMilli, 20000);
 
+  // Unit word ("Pack") inside item description must not hijack qty/unit anchoring, and known 3-digit CBIC HSN ("0904" -> "904") recovers cleanly
+  const packWordRow = parseOcrInvoiceText(
+    [
+      "GSTIN : 29ANNAP2218B1ZX",
+      "1 Red Chilli Powder Pack 904 20.00 Pkt 80.00 1,600.00 6.00% 96.00 6.00% 96.00 1,792.00",
+      "2 Turmeric Powder Pack 910 20.00 Pkt 64.00 1,280.00 2.50% 32.00 2.50% 32.00 1,344.00",
+    ].join("\n"),
+    { pageConfidence: 90 }
+  );
+  assert.equal(packWordRow.lines.length, 2);
+  assert.equal(packWordRow.lines[0].hsnCode, "0904");
+  assert.equal(packWordRow.lines[0].qtyMilli, 20000);
+  assert.equal(packWordRow.lines[1].qtyMilli, 20000);
+  assert.equal(packWordRow.lines[1].unitRatePaise, "6400");
+  assert.equal(packWordRow.lines[1].declaredLineTotalPaise, "134400");
+
   const customBuyerOnly = parseCustomInvoiceText(
     "Buyer: Ganesh Kirana Stores\nBuyer GSTIN: 29GANKS4501D1ZS\nSugar | 1701 | 10 | kg | 40 | 5"
   );

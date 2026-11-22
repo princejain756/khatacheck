@@ -346,6 +346,11 @@ function isHsnToken(tok: string): string | null {
       return prefix4;
     }
   }
+  // Recover leading-zero CBIC HSN headings when Tesseract drops the first '0' (e.g. "0910" -> "910")
+  if (/^\d{3}$/.test(clean)) {
+    const padded = `0${clean}`;
+    if (lookupHsnRule(padded)) return padded;
+  }
   return null;
 }
 
@@ -415,17 +420,28 @@ function parseRowTokens(
     }
   }
 
-  // Locate unit token
+  // Locate unit token (prefer a unit immediately preceded by a numeric qty so words like "Pack" in descriptions do not hijack unitIdx)
   let unitIdx = -1;
   let unit = "pcs";
+  let fallbackUnitIdx = -1;
+  let fallbackUnit = "pcs";
   const searchStart = hsnIdx >= 0 ? hsnIdx + 1 : 1;
   for (let i = searchStart; i < tokens.length; i += 1) {
     const u = normalizeUnit(tokens[i]);
-    if (u) {
+    if (!u) continue;
+    if (fallbackUnitIdx < 0) {
+      fallbackUnitIdx = i;
+      fallbackUnit = u;
+    }
+    if (parseFlexibleNumber(tokens[i - 1] ?? "") !== null) {
       unitIdx = i;
       unit = u;
       break;
     }
+  }
+  if (unitIdx < 0 && hsnIdx >= 0 && fallbackUnitIdx >= 0) {
+    unitIdx = fallbackUnitIdx;
+    unit = fallbackUnit;
   }
 
   const anchorIdx = hsnIdx >= 0 ? hsnIdx : unitIdx >= 2 ? unitIdx - 1 : -1;
