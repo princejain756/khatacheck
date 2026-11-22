@@ -11,9 +11,9 @@
       "expectedLineCount": 4,
       "expectedGrandTotalPaise": "3756900",
       "expectedFaultCategories": [],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_01_kirana_clean.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_01_kirana_clean.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_01_kirana_clean.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_01_kirana_clean.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_01_kirana_clean.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_01_kirana_clean.png"
     },
     {
       "caseId": "E2E-IMG-02",
@@ -28,9 +28,9 @@
       "expectedFaultCategories": [
         "hsn_mismatch"
       ],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_02_kirana_hsn.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_02_kirana_hsn.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_02_kirana_hsn.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_02_kirana_hsn.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_02_kirana_hsn.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_02_kirana_hsn.png"
     },
     {
       "caseId": "E2E-IMG-03",
@@ -43,9 +43,9 @@
       "expectedLineCount": 3,
       "expectedGrandTotalPaise": "1113000",
       "expectedFaultCategories": [],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_03_kirana_igst.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_03_kirana_igst.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_03_kirana_igst.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_03_kirana_igst.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_03_kirana_igst.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_03_kirana_igst.png"
     },
     {
       "caseId": "E2E-IMG-04",
@@ -60,9 +60,9 @@
       "expectedFaultCategories": [
         "invalid_gstin"
       ],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_04_kirana_bad_gstin.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_04_kirana_bad_gstin.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_04_kirana_bad_gstin.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_04_kirana_bad_gstin.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_04_kirana_bad_gstin.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_04_kirana_bad_gstin.png"
     },
     {
       "caseId": "E2E-IMG-05",
@@ -77,9 +77,9 @@
       "expectedFaultCategories": [
         "arithmetic_mismatch"
       ],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_05_kirana_arith.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_05_kirana_arith.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_05_kirana_arith.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_05_kirana_arith.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_05_kirana_arith.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_05_kirana_arith.png"
     },
     {
       "caseId": "E2E-IMG-06",
@@ -92,9 +92,9 @@
       "expectedLineCount": 3,
       "expectedGrandTotalPaise": "1344000",
       "expectedFaultCategories": [],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_06_pharma_clean.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_06_pharma_clean.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_06_pharma_clean.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_06_pharma_clean.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_06_pharma_clean.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_06_pharma_clean.png"
     },
     {
       "caseId": "E2E-IMG-07",
@@ -109,9 +109,9 @@
       "expectedFaultCategories": [
         "hsn_mismatch"
       ],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_07_pharma_hsn.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_07_pharma_hsn.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_07_pharma_hsn.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_07_pharma_hsn.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_07_pharma_hsn.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_07_pharma_hsn.png"
     },
     {
       "caseId": "E2E-IMG-08",
@@ -124,9 +124,9 @@
       "expectedLineCount": 3,
       "expectedGrandTotalPaise": "1402100",
       "expectedFaultCategories": [],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_08_pharma_clean.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_08_pharma_clean.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_08_pharma_clean.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_08_pharma_clean.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_08_pharma_clean.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_08_pharma_clean.png"
     },
     {
       "caseId": "E2E-IMG-09",
@@ -141,9 +141,9 @@
       "expectedFaultCategories": [
         "arithmetic_mismatch"
       ],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_09_pharma_arith.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_09_pharma_arith.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_09_pharma_arith.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_09_pharma_arith.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_09_pharma_arith.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_09_pharma_arith.png"
     },
     {
       "caseId": "E2E-IMG-10",
@@ -156,9 +156,9 @@
       "expectedLineCount": 3,
       "expectedGrandTotalPaise": "1900500",
       "expectedFaultCategories": [],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_10_textile_clean.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_10_textile_clean.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_10_textile_clean.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_10_textile_clean.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_10_textile_clean.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_10_textile_clean.png"
     },
     {
       "caseId": "E2E-IMG-11",
@@ -173,9 +173,9 @@
       "expectedFaultCategories": [
         "hsn_mismatch"
       ],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_11_textile_hsn.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_11_textile_hsn.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_11_textile_hsn.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_11_textile_hsn.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_11_textile_hsn.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_11_textile_hsn.png"
     },
     {
       "caseId": "E2E-IMG-12",
@@ -188,9 +188,9 @@
       "expectedLineCount": 3,
       "expectedGrandTotalPaise": "2018100",
       "expectedFaultCategories": [],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_12_textile_igst.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_12_textile_igst.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_12_textile_igst.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_12_textile_igst.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_12_textile_igst.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_12_textile_igst.png"
     },
     {
       "caseId": "E2E-IMG-13",
@@ -203,9 +203,9 @@
       "expectedLineCount": 3,
       "expectedGrandTotalPaise": "995640",
       "expectedFaultCategories": [],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_13_fmcg_clean.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_13_fmcg_clean.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_13_fmcg_clean.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_13_fmcg_clean.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_13_fmcg_clean.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_13_fmcg_clean.png"
     },
     {
       "caseId": "E2E-IMG-14",
@@ -220,9 +220,9 @@
       "expectedFaultCategories": [
         "arithmetic_mismatch"
       ],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_14_fmcg_arith.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_14_fmcg_arith.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_14_fmcg_arith.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_14_fmcg_arith.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_14_fmcg_arith.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_14_fmcg_arith.png"
     },
     {
       "caseId": "E2E-IMG-15",
@@ -237,9 +237,9 @@
       "expectedFaultCategories": [
         "hsn_mismatch"
       ],
-      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_15_fmcg_hsn.html",
-      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_15_fmcg_hsn.pdf",
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_15_fmcg_hsn.png"
+      "htmlPath": "benchmark/e2e_fixtures/html/e2e_15_fmcg_hsn.html",
+      "pdfPath": "benchmark/e2e_fixtures/pdf/e2e_15_fmcg_hsn.pdf",
+      "imagePath": "benchmark/e2e_fixtures/invoices/e2e_15_fmcg_hsn.png"
     },
     {
       "caseId": "E2E-IMG-16-REAL-PHOTO",
@@ -254,7 +254,14 @@
       "expectedFaultCategories": [
         "hsn_mismatch"
       ],
-      "imagePath": "/Users/admin/Github/khatacheck/public/images/sample-kirana-bill.jpg"
+      "imagePath": "public/images/sample-kirana-bill.jpg",
+      "captureProvenance": {
+        "description": "1086x1448 printed synthetic Scenario 1 photo on wood surface, EXIF stripped",
+        "dimensions": "1086x1448",
+        "bytes": 600305,
+        "exifStripped": true,
+        "sha256": "416903710a69cff7855d3ebebada9c5fa3067e6ccd5b589fce796a0be736af87"
+      }
     },
     {
       "caseId": "E2E-BLUR-01",
@@ -269,7 +276,7 @@
       "expectedFaultCategories": [
         "clarity_abstain"
       ],
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/blurred/e2e_blur_01.png"
+      "imagePath": "benchmark/e2e_fixtures/blurred/e2e_blur_01.png"
     },
     {
       "caseId": "E2E-BLUR-02",
@@ -284,7 +291,7 @@
       "expectedFaultCategories": [
         "clarity_abstain"
       ],
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/blurred/e2e_blur_02.png"
+      "imagePath": "benchmark/e2e_fixtures/blurred/e2e_blur_02.png"
     },
     {
       "caseId": "E2E-BLUR-03",
@@ -299,14 +306,14 @@
       "expectedFaultCategories": [
         "clarity_abstain"
       ],
-      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/blurred/e2e_blur_03.png"
+      "imagePath": "benchmark/e2e_fixtures/blurred/e2e_blur_03.png"
     }
   ],
   "audio": [
     {
       "caseId": "E2E-ASR-01",
       "filename": "audio_01_kirana_shortage.mp3",
-      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_01_kirana_shortage.mp3",
+      "audioPath": "benchmark/e2e_fixtures/audio/audio_01_kirana_shortage.mp3",
       "scenarioId": "SCN-01-KIRANA-SHORT",
       "expectedShortageKind": "shortage",
       "expectedSku": "DAL-TOOR-KG",
@@ -316,7 +323,7 @@
     {
       "caseId": "E2E-ASR-02",
       "filename": "audio_02_pharma_shortage.mp3",
-      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_02_pharma_shortage.mp3",
+      "audioPath": "benchmark/e2e_fixtures/audio/audio_02_pharma_shortage.mp3",
       "scenarioId": "SCN-02-PHARMACY-HSN",
       "expectedShortageKind": "shortage",
       "expectedSku": "MED-AMOX-STRIP",
@@ -326,7 +333,7 @@
     {
       "caseId": "E2E-ASR-03",
       "filename": "audio_03_textile_rate_jump.mp3",
-      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_03_textile_rate_jump.mp3",
+      "audioPath": "benchmark/e2e_fixtures/audio/audio_03_textile_rate_jump.mp3",
       "scenarioId": "SCN-03-TEXTILE-DRIFT",
       "expectedShortageKind": "rate_jump",
       "expectedSku": "FAB-CAMB-44",
@@ -336,7 +343,7 @@
     {
       "caseId": "E2E-ASR-04",
       "filename": "audio_04_chilli_shortage_pii.mp3",
-      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_04_chilli_shortage_pii.mp3",
+      "audioPath": "benchmark/e2e_fixtures/audio/audio_04_chilli_shortage_pii.mp3",
       "scenarioId": "SCN-01-KIRANA-SHORT",
       "expectedShortageKind": "shortage",
       "expectedSku": "SPICE-CHILLI-500G",
@@ -346,7 +353,7 @@
     {
       "caseId": "E2E-ASR-05",
       "filename": "audio_05_clean_negation.mp3",
-      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_05_clean_negation.mp3",
+      "audioPath": "benchmark/e2e_fixtures/audio/audio_05_clean_negation.mp3",
       "scenarioId": "SCN-01-KIRANA-SHORT",
       "expectedShortageKind": "none",
       "expectedSku": null,

@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -9,8 +10,34 @@ const MANIFEST_PATH = path.join(
   "manifest.json"
 );
 const OUT_SRC_PATH = path.join(process.cwd(), "src", "data", "e2e-ocr-asr-results.json");
-const OUT_STAGE4_PATH =
+const DEFAULT_STAGE4_OUT_PATH =
   "/Users/admin/Github/unstop-hackathons/neuraviz-2026/stage4/e2e_ocr_asr_results.json";
+const OUT_STAGE4_PATH = process.env.STAGE4_OUT_PATH || DEFAULT_STAGE4_OUT_PATH;
+
+function resolveRepoPath(relOrAbsPath) {
+  return path.isAbsolute(relOrAbsPath)
+    ? relOrAbsPath
+    : path.resolve(process.cwd(), relOrAbsPath);
+}
+
+async function resolveTargetCodeCommit(baseUrl) {
+  try {
+    const resp = await fetch(`${baseUrl}/api/health`, { cache: "no-store" });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (typeof data.commit === "string" && data.commit.trim()) {
+        return data.commit.trim();
+      }
+    }
+  } catch {
+    // Fall back to local git HEAD when /api/health omits commit SHA
+  }
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  } catch {
+    return "unknown";
+  }
+}
 
 function nearestRankQuantile(values, q) {
   if (values.length === 0) return 0;
@@ -25,8 +52,14 @@ function pct(num, den) {
 }
 
 async function runImageCase(baseUrl, item) {
-  const buf = fs.readFileSync(item.imagePath);
-  const mime = item.filename.toLowerCase().endsWith(".jpg") ? "image/jpeg" : "image/png";
+  const buf = fs.readFileSync(resolveRepoPath(item.imagePath));
+  const lower = item.filename.toLowerCase();
+  const mime =
+    lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+      ? "image/jpeg"
+      : lower.endsWith(".webp")
+        ? "image/webp"
+        : "image/png";
   const form = new FormData();
   form.append("file", new File([buf], item.filename, { type: mime }));
   form.append("enablePiiScrub", "true");
@@ -85,12 +118,12 @@ async function runImageCase(baseUrl, item) {
     vendorGstinExtracted: String(invoice.vendorGstin || ""),
     vendorGstinMatched: item.expectedClarityPass
       ? String(invoice.vendorGstin || "") === item.expectedVendorGstin
-      : true,
+      : null,
     expectedGrandTotalPaise: item.expectedGrandTotalPaise,
     extractedGrandTotalPaise: String(invoice.declaredGrandTotalPaise || "0"),
     grandTotalMatched: item.expectedClarityPass
       ? String(invoice.declaredGrandTotalPaise || "0") === item.expectedGrandTotalPaise
-      : true,
+      : null,
     detectedCategories,
     faultDetectionPassed,
     abstainedClarity,
@@ -99,7 +132,7 @@ async function runImageCase(baseUrl, item) {
 }
 
 async function runAudioCase(baseUrl, item) {
-  const buf = fs.readFileSync(item.audioPath);
+  const buf = fs.readFileSync(resolveRepoPath(item.audioPath));
   const form = new FormData();
   form.append("file", new File([buf], item.filename, { type: "audio/mpeg" }));
 
@@ -195,8 +228,9 @@ async function main() {
     throw new Error(`Missing E2E manifest at ${MANIFEST_PATH}`);
   }
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
+  const targetCodeCommit = await resolveTargetCodeCommit(baseUrl);
 
-  console.log(`Running live E2E OCR + ASR benchmark against ${baseUrl} ...`);
+  console.log(`Running live E2E OCR + ASR benchmark against ${baseUrl} (commit ${targetCodeCommit}) ...`);
   const imageResults = [];
   for (const item of manifest.images) {
     const res = await runImageCase(baseUrl, item);
@@ -249,6 +283,7 @@ async function main() {
     runId: `KC-E2E-${Date.now()}`,
     executedAtIso: new Date().toISOString(),
     targetBaseUrl: baseUrl,
+    targetCodeCommit,
     imageSummary: {
       totalCases: imageResults.length,
       crispGeneratedCases: crispGenerated.length,
@@ -316,11 +351,16 @@ async function main() {
 
   fs.mkdirSync(path.dirname(OUT_SRC_PATH), { recursive: true });
   fs.writeFileSync(OUT_SRC_PATH, JSON.stringify(report, null, 2), "utf8");
-  fs.mkdirSync(path.dirname(OUT_STAGE4_PATH), { recursive: true });
-  fs.writeFileSync(OUT_STAGE4_PATH, JSON.stringify(report, null, 2), "utf8");
-
   console.log("E2E_BENCHMARK_WRITTEN:", OUT_SRC_PATH);
-  console.log("STAGE4_COPY_WRITTEN:", OUT_STAGE4_PATH);
+
+  const stage4Dir = path.dirname(OUT_STAGE4_PATH);
+  if (process.env.STAGE4_OUT_PATH || fs.existsSync(stage4Dir)) {
+    fs.mkdirSync(stage4Dir, { recursive: true });
+    fs.writeFileSync(OUT_STAGE4_PATH, JSON.stringify(report, null, 2), "utf8");
+    console.log("STAGE4_COPY_WRITTEN:", OUT_STAGE4_PATH);
+  } else {
+    console.log("STAGE4_COPY_SKIPPED: parent directory absent:", stage4Dir);
+  }
   console.log("SUMMARY:", JSON.stringify({
     imageSummary: report.imageSummary,
     audioSummary: report.audioSummary,
