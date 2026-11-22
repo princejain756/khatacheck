@@ -260,13 +260,13 @@ export function PrivacyClient({ initialEventCount }: Props) {
               </thead>
               <tbody className="divide-y divide-line">
                 {retentionSchedule.map((row) => (
-                  <tr key={row.artifact} className="hover:bg-subtle/60">
-                    <td className="py-2.5 px-3 type-table-cell font-medium text-ink">{row.artifact}</td>
-                    <td className="py-2.5 px-3 type-table-cell text-muted">{row.egress}</td>
-                    <td className="py-2.5 px-3 type-table-cell numeral text-ink whitespace-nowrap">
+                  <tr key={row.artifact} className="hover:bg-subtle/60 align-top">
+                    <td className="py-2 px-2.5 type-table-cell font-medium text-ink">{row.artifact}</td>
+                    <td className="py-2 px-2.5 type-table-cell text-muted">{row.egress}</td>
+                    <td className="py-2 px-2.5 type-table-cell numeral text-ink">
                       {row.ttl}
                     </td>
-                    <td className="py-2.5 px-3 type-table-cell text-muted">{row.retained}</td>
+                    <td className="py-2 px-2.5 type-table-cell text-muted">{row.retained}</td>
                   </tr>
                 ))}
               </tbody>
