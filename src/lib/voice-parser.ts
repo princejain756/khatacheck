@@ -58,6 +58,9 @@ const CANONICAL_UNITS: Record<string, string> = {
   kilogrammes: "kg",
   ltr: "ltr",
   ltrs: "ltr",
+  l: "ltr",
+  lt: "ltr",
+  lts: "ltr",
   liter: "ltr",
   liters: "ltr",
   litre: "ltr",
@@ -114,6 +117,15 @@ const CANONICAL_UNITS: Record<string, string> = {
   milliliters: "ml",
   millilitre: "ml",
   millilitres: "ml",
+  cc: "cc",
+  gal: "gal",
+  gallon: "gal",
+  gallons: "gal",
+  oz: "oz",
+  ounce: "oz",
+  ounces: "oz",
+  lb: "lb",
+  lbs: "lb",
   quintal: "quintal",
   quintals: "quintal",
   qtl: "quintal",
@@ -370,25 +382,36 @@ export function parseVoiceRemarks(
       let foundQty: number | null = null;
       let foundUnit: string | null = null;
       if (matched && unitPairs.length > 0) {
+        const descNorm = matched.description
+          .toLowerCase()
+          .replace(/[^a-z0-9.]+/g, " ")
+          .trim();
+        const isPackDescriptor = (p: { qty: number; unit: string }): boolean => {
+          const rawUnit = p.unit.toLowerCase();
+          const canon = canonicalizeVoiceUnit(rawUnit);
+          const unitAliases = [
+            rawUnit,
+            canon,
+            canon === "gram" ? "g" : null,
+            canon === "gram" ? "gm" : null,
+            canon === "ltr" ? "l" : null,
+            canon === "ltr" ? "lt" : null,
+          ].filter((u): u is string => Boolean(u));
+          const escapedQty = String(p.qty).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          return unitAliases.some((u) => {
+            const escapedUnit = u.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            return new RegExp(`(?:^|\\s)${escapedQty}\\s*${escapedUnit}(?=\\s|$)`).test(descNorm);
+          });
+        };
+        const nonPackPairs = unitPairs.filter((p) => !isPackDescriptor(p));
+        const candidatePairs = nonPackPairs.length > 0 ? nonPackPairs : unitPairs;
         const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);
-        const exactUnitMatch = unitPairs.find(
+        const exactUnitMatch = candidatePairs.find(
           (p) => canonicalizeVoiceUnit(p.unit) === lineUnitCanon
         );
-        if (exactUnitMatch) {
-          foundQty = exactUnitMatch.qty;
-          foundUnit = exactUnitMatch.unit;
-        } else {
-          const descCompact = matched.description.toLowerCase().replace(/[^a-z0-9]/g, "");
-          const nonPackPair = unitPairs.find((p) => {
-            const rawUnit = p.unit.toLowerCase();
-            const canon = canonicalizeVoiceUnit(rawUnit);
-            const candidates = [rawUnit, canon, canon === "gram" ? "g" : null].filter(Boolean);
-            return !candidates.some((u) => descCompact.includes(`${p.qty}${u}`));
-          });
-          const chosen = nonPackPair ?? unitPairs[0];
-          foundQty = chosen.qty;
-          foundUnit = chosen.unit;
-        }
+        const chosen = exactUnitMatch ?? candidatePairs[0];
+        foundQty = chosen.qty;
+        foundUnit = chosen.unit;
       } else if (unitPairs.length > 0) {
         foundQty = unitPairs[0].qty;
         foundUnit = unitPairs[0].unit;

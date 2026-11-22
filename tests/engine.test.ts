@@ -823,4 +823,33 @@ test("Spelled-out sub-units like milligrams and millilitres route mismatches to 
   );
   assert.equal(mlVerify.voiceMatches[0]?.kind, "unmatched_manual");
   assert.equal(mlVerify.faults.filter((f) => f.category === "voice_shortage").length, 0);
+
+  assert.equal(canonicalizeVoiceUnit("l"), "ltr");
+  assert.equal(canonicalizeVoiceUnit("lt"), "ltr");
+  assert.equal(canonicalizeVoiceUnit("lts"), "ltr");
+  assert.equal(canonicalizeVoiceUnit("cc"), "cc");
+  assert.equal(canonicalizeVoiceUnit("gallons"), "gal");
+  assert.equal(canonicalizeVoiceUnit("ounces"), "oz");
+  assert.equal(canonicalizeVoiceUnit("lbs"), "lb");
+
+  const packLine = { ...kirana.lines[0], description: "Arhar / Toor Dal (1 kg bags)" };
+  const litreAliasHits = parseVoiceRemarks("5 l of Arhar Dal missing", [packLine]);
+  assert.equal(litreAliasHits.length, 1);
+  assert.equal(litreAliasHits[0].kind, "unmatched_manual");
+  assert.equal(litreAliasHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(litreAliasHits[0].shortageQty, 5);
+  assert.equal(litreAliasHits[0].variancePaise, "0");
+
+  const packShadowMismatchHits = parseVoiceRemarks("Arhar Dal 1 kg bags had 5 g missing", [packLine]);
+  assert.equal(packShadowMismatchHits.length, 1);
+  assert.equal(packShadowMismatchHits[0].kind, "unmatched_manual");
+  assert.equal(packShadowMismatchHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(packShadowMismatchHits[0].shortageQty, 5);
+  assert.equal(packShadowMismatchHits[0].variancePaise, "0");
+
+  const ricePackLine = { ...kirana.lines[4], description: "Basmati Rice (25 kg)" };
+  const boundaryHits = parseVoiceRemarks("Basmati Rice 25 kg 5 kg missing", [ricePackLine]);
+  assert.equal(boundaryHits.length, 1);
+  assert.equal(boundaryHits[0].kind, "shortage");
+  assert.equal(boundaryHits[0].shortageQty, 5);
 });
