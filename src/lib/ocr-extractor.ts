@@ -1270,7 +1270,7 @@ export function parseOcrInvoiceText(
       );
     if (explicitGtMatch) {
       const p = safeParsePaise(explicitGtMatch[1]);
-      if (p !== null && p > 0n) {
+      if (p !== null) {
         declaredGrandTotalPaise = p;
         sawExplicitGrandTotal = true;
       }
@@ -1278,7 +1278,7 @@ export function parseOcrInvoiceText(
       const genericTotalMatch = /^total\s*(?:rs\.?|₹|:|=)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i.exec(line);
       if (genericTotalMatch) {
         const p = safeParsePaise(genericTotalMatch[1]);
-        if (p !== null && p > 0n) declaredGrandTotalPaise = p;
+        if (p !== null && p >= 0n) declaredGrandTotalPaise = p;
       }
     }
 
@@ -1287,7 +1287,7 @@ export function parseOcrInvoiceText(
     );
     if (tvMatch) {
       const p = safeParsePaise(tvMatch[1]);
-      if (p !== null && p > 0n) declaredTaxableSubtotalPaise = p;
+      if (p !== null && p >= 0n) declaredTaxableSubtotalPaise = p;
     }
 
     const roMatch = /round\s*off\b[^0-9-]*(-?[\d,]+(?:\.\d{1,2})?)/i.exec(line);
