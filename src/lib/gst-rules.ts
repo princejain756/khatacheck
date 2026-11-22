@@ -476,16 +476,32 @@ export function verifyInvoiceDeterministic(
         expectedCgst = halfUpDiv(expectedTaxable * BigInt(hsnRule.cgstBps), 10000n);
         expectedSgst = halfUpDiv(expectedTaxable * BigInt(hsnRule.sgstOrUtgstBps), 10000n);
       }
+    } else if (isInterstate) {
+      expectedIgst = halfUpDiv(expectedTaxable * BigInt(declaredRateBps), 10000n);
     } else {
-      expectedCgst = halfUpDiv(expectedTaxable * BigInt(line.declaredCgstBps || 0), 10000n);
-      expectedSgst = halfUpDiv(expectedTaxable * BigInt(line.declaredSgstBps || 0), 10000n);
-      expectedIgst = halfUpDiv(expectedTaxable * BigInt(line.declaredIgstBps || 0), 10000n);
+      const halfBps = Math.floor(declaredRateBps / 2);
+      expectedCgst = halfUpDiv(expectedTaxable * BigInt(halfBps), 10000n);
+      expectedSgst = halfUpDiv(expectedTaxable * BigInt(declaredRateBps - halfBps), 10000n);
     }
+
+    const declaredCgst = BigInt(line.declaredCgstPaise || "0");
+    const declaredSgst = BigInt(line.declaredSgstPaise || "0");
+    const declaredIgst = BigInt(line.declaredIgstPaise || "0");
+    const hasTaxSplitViolation = isInterstate
+      ? (line.declaredCgstBps || 0) !== 0 ||
+        (line.declaredSgstBps || 0) !== 0 ||
+        declaredCgst !== 0n ||
+        declaredSgst !== 0n ||
+        declaredIgst !== expectedIgst
+      : (line.declaredIgstBps || 0) !== 0 ||
+        declaredIgst !== 0n ||
+        declaredCgst !== expectedCgst ||
+        declaredSgst !== expectedSgst;
 
     const expectedLineTotal = expectedTaxable + expectedCgst + expectedSgst + expectedIgst;
     const declaredLineTotal = BigInt(line.declaredLineTotalPaise || "0");
 
-    // Check HSN slab mismatch first vs arithmetic mismatch
+    // Check HSN slab mismatch first vs arithmetic or tax component split mismatch
     if (hsnRule && expectedRateBps !== null && declaredRateBps !== expectedRateBps) {
       const declaredTaxAtWrongSlab = halfUpDiv(expectedTaxable * BigInt(declaredRateBps), 10000n);
       const expectedTaxAtHsnSlab = expectedCgst + expectedSgst + expectedIgst;
@@ -509,23 +525,45 @@ export function verifyInvoiceDeterministic(
       discountPaise < 0n ||
       discountPaise > gross ||
       declaredTaxable !== expectedTaxable ||
-      declaredLineTotal !== expectedLineTotal
+      declaredLineTotal !== expectedLineTotal ||
+      hasTaxSplitViolation
     ) {
-      // Also check declared line tax vs computed tax under declared rate
       const delta = bigIntAbs(declaredLineTotal - expectedLineTotal);
-      if (delta > 0n || discountPaise < 0n || discountPaise > gross || declaredTaxable !== expectedTaxable) {
+      const splitDelta =
+        bigIntAbs(declaredCgst - expectedCgst) +
+        bigIntAbs(declaredSgst - expectedSgst) +
+        bigIntAbs(declaredIgst - expectedIgst);
+      if (
+        delta > 0n ||
+        splitDelta > 0n ||
+        hasTaxSplitViolation ||
+        discountPaise < 0n ||
+        discountPaise > gross ||
+        declaredTaxable !== expectedTaxable
+      ) {
+        const declaredTaxSum = declaredCgst + declaredSgst + declaredIgst;
+        const expectedTaxSum = expectedCgst + expectedSgst + expectedIgst;
+        const lineVariance =
+          delta > 0n
+            ? delta
+            : splitDelta > 0n
+              ? splitDelta
+              : bigIntAbs(declaredTaxable - expectedTaxable);
         faults.push({
           faultId: `FLT-${faultSeq++}`,
           category: "arithmetic_mismatch",
           severity: "high",
-          ruleId: "MATH-LINE-BIGINT-PAISE",
+          ruleId: hasTaxSplitViolation && delta === 0n ? "GST-SPLIT-COMPONENT-CHECK" : "MATH-LINE-BIGINT-PAISE",
           lineNumber: line.lineNumber,
           sku: line.sku,
-          title: `Line ${line.lineNumber}: Arithmetic / Tax Calculation Mismatch`,
-          explanation: `Line ${line.lineNumber} (${line.description}) total differs from deterministic qty * rate - discount + GST calculation.`,
-          declaredPaise: declaredLineTotal.toString(),
-          expectedPaise: expectedLineTotal.toString(),
-          variancePaise: (delta > 0n ? delta : bigIntAbs(declaredTaxable - expectedTaxable)).toString(),
+          title:
+            hasTaxSplitViolation && delta === 0n
+              ? `Line ${line.lineNumber}: Tax Component / Place-of-Supply Split Mismatch`
+              : `Line ${line.lineNumber}: Arithmetic / Tax Calculation Mismatch`,
+          explanation: `Line ${line.lineNumber} (${line.description}) differs from deterministic ${isInterstate ? "interstate IGST" : "intrastate CGST/SGST"} BigInt calculation.`,
+          declaredPaise: (delta === 0n && hasTaxSplitViolation ? declaredTaxSum : declaredLineTotal).toString(),
+          expectedPaise: (delta === 0n && hasTaxSplitViolation ? expectedTaxSum : expectedLineTotal).toString(),
+          variancePaise: lineVariance.toString(),
           bbox: line.bbox,
           confidence: line.ocrConfidence,
         });
@@ -604,23 +642,29 @@ export function verifyInvoiceDeterministic(
   const validRoundOff = bigIntAbs(roundOff) <= 50n ? roundOff : 0n;
   const expectedGrandTotal = sumTaxable + sumTax + validRoundOff;
   const declaredGrandTotal = BigInt(invoice.declaredGrandTotalPaise || "0");
+  const declaredTaxableSubtotal = BigInt(invoice.declaredTaxableSubtotalPaise || "0");
+  const declaredTotalTax = BigInt(invoice.declaredTotalTaxPaise || "0");
 
-  // Grand total check when no individual line fault already explained the gap (or independent grand total tampering)
+  // Header subtotal/tax/grand total check when no line-level fault already explains the gap
   const hasLineMathOrHsn = faults.some(
     (f) => f.category === "arithmetic_mismatch" || f.category === "hsn_mismatch"
   );
   const grandDelta = bigIntAbs(declaredGrandTotal - expectedGrandTotal);
-  if (grandDelta > 0n && !hasLineMathOrHsn) {
+  const taxableSubDelta = bigIntAbs(declaredTaxableSubtotal - sumTaxable);
+  const totalTaxDelta = bigIntAbs(declaredTotalTax - sumTax);
+  if ((grandDelta > 0n || taxableSubDelta > 0n || totalTaxDelta > 0n) && !hasLineMathOrHsn) {
+    const headerVariance =
+      grandDelta > 0n ? grandDelta : totalTaxDelta > 0n ? totalTaxDelta : taxableSubDelta;
     faults.push({
       faultId: `FLT-${faultSeq++}`,
       category: "arithmetic_mismatch",
       severity: "high",
-      ruleId: "MATH-GRAND-TOTAL-CHECK",
-      title: "Invoice Grand Total Mismatch",
-      explanation: `Declared invoice grand total disagrees with deterministic sum of line items and GST components.`,
-      declaredPaise: declaredGrandTotal.toString(),
-      expectedPaise: expectedGrandTotal.toString(),
-      variancePaise: grandDelta.toString(),
+      ruleId: grandDelta > 0n ? "MATH-GRAND-TOTAL-CHECK" : "MATH-HEADER-TAX-CHECK",
+      title: grandDelta > 0n ? "Invoice Grand Total Mismatch" : "Invoice Header Subtotal / Tax Mismatch",
+      explanation: `Declared invoice header totals disagree with deterministic sum of line items and GST components.`,
+      declaredPaise: (grandDelta > 0n ? declaredGrandTotal : totalTaxDelta > 0n ? declaredTotalTax : declaredTaxableSubtotal).toString(),
+      expectedPaise: (grandDelta > 0n ? expectedGrandTotal : totalTaxDelta > 0n ? sumTax : sumTaxable).toString(),
+      variancePaise: headerVariance.toString(),
       confidence: 1.0,
     });
   }

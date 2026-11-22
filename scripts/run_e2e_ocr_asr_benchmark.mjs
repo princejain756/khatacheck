@@ -226,6 +226,11 @@ async function runAudioCase(baseUrl, item) {
       );
   }
 
+  const scrubbedTranscript = String(asrData.scrubbedTranscript || "");
+  if (/(?:98927|ramesh\.sharma)/i.test(scrubbedTranscript)) {
+    throw new Error(`Scrubbed ASR transcript for ${item.caseId} still contains raw PII`);
+  }
+
   return {
     caseId: item.caseId,
     filename: item.filename,
@@ -237,8 +242,8 @@ async function runAudioCase(baseUrl, item) {
     asrLatencyMs: Number(asrData.asrLatencyMs ?? asrWallClockMs),
     analyzeWallClockMs,
     totalWallClockMs,
-    transcript: String(asrData.transcript || ""),
-    scrubbedTranscript: String(asrData.scrubbedTranscript || ""),
+    transcript: scrubbedTranscript,
+    scrubbedTranscript,
     redactionCount: Number(asrData.redactionCount ?? 0),
     redactedKinds: Array.isArray(asrData.redactedKinds) ? asrData.redactedKinds : [],
     expectedShortageKind: item.expectedShortageKind,
@@ -365,7 +370,7 @@ async function main() {
       asrLatencyMs: a.asrLatencyMs,
       analyzeWallClockMs: a.analyzeWallClockMs,
       totalWallClockMs: a.totalWallClockMs,
-      transcript: a.transcript,
+      transcript: a.scrubbedTranscript,
       scrubbedTranscript: a.scrubbedTranscript,
       redactionCount: a.redactionCount,
       redactedKinds: a.redactedKinds,

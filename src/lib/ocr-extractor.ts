@@ -563,7 +563,8 @@ function extractGstins(lines: string[]): { vendorGstin: string; buyerGstin: stri
   let section: "header" | "supplier" | "buyer" = "header";
   let vendorGstin = "";
   let buyerGstin = "";
-  const ordered: string[] = [];
+  const supplierCandidates: string[] = [];
+  const buyerCandidates: string[] = [];
 
   for (const raw of lines) {
     const upper = raw.toUpperCase();
@@ -585,20 +586,29 @@ function extractGstins(lines: string[]): { vendorGstin: string; buyerGstin: stri
     }
 
     for (const gstin of foundInLine) {
-      if (!ordered.includes(gstin)) ordered.push(gstin);
-      if (section === "buyer" && !buyerGstin && gstin !== vendorGstin) {
-        buyerGstin = gstin;
-      } else if (section !== "buyer" && !vendorGstin) {
-        vendorGstin = gstin;
+      if (section === "buyer") {
+        if (!buyerCandidates.includes(gstin)) buyerCandidates.push(gstin);
+        if (!buyerGstin && gstin !== vendorGstin) {
+          buyerGstin = gstin;
+        }
+      } else {
+        if (!supplierCandidates.includes(gstin)) supplierCandidates.push(gstin);
+        if (!vendorGstin) {
+          vendorGstin = gstin;
+        }
       }
     }
   }
 
-  if (!vendorGstin && ordered.length > 0) {
-    vendorGstin = ordered[0];
+  if (!vendorGstin && supplierCandidates.length > 0) {
+    vendorGstin = supplierCandidates[0];
   }
-  if (!buyerGstin && ordered.length > 1) {
-    buyerGstin = ordered.find((g) => g !== vendorGstin) || "";
+  if (!buyerGstin) {
+    buyerGstin =
+      buyerCandidates.find((g) => g !== vendorGstin) ||
+      buyerCandidates[0] ||
+      supplierCandidates.find((g) => g !== vendorGstin) ||
+      "";
   }
   return { vendorGstin, buyerGstin };
 }

@@ -319,7 +319,7 @@
       "expectedSku": "DAL-TOOR-KG",
       "expectedQty": 5,
       "expectedUnit": "kg",
-      "expectedRedactionCount": 0
+      "expectedRedactionCount": 1
     },
     {
       "caseId": "E2E-ASR-02",

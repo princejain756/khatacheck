@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DEMO_SCENARIOS } from "@/lib/bill-scenarios";
+import { computeBillSha256 } from "@/lib/engine";
 import {
   LIFECYCLE_GATES,
   buildDisputeCsv,
   buildTallyPurchaseXml,
   computeAutomationBiasMonitor,
-  hasApprovedLedgerDecision,
+  isInvoiceApprovedInEvents,
   readLedgerEvents,
   verifyHashChain,
 } from "@/lib/governance-ledger";
@@ -26,13 +27,21 @@ export async function GET(req: NextRequest) {
         { status: 404, headers: { "Cache-Control": "no-store" } }
       );
     }
-    if (!hasApprovedLedgerDecision(scenario.id)) {
+    const events = readLedgerEvents();
+    const chain = verifyHashChain(events);
+    const expectedBillSha256 = computeBillSha256(scenario.invoice);
+    const approved =
+      chain.valid && isInvoiceApprovedInEvents(events, scenario.id, expectedBillSha256);
+    if (!approved) {
       return NextResponse.json(
         {
-          error:
-            "Store owner approval in the SHA-256 audit ledger is required before Tally Sandbox XML export.",
+          error: !chain.valid
+            ? "Audit ledger SHA-256 hash chain verification failed; Tally Sandbox XML export blocked."
+            : "Store owner approval in the SHA-256 audit ledger with matching bill SHA-256 is required before Tally Sandbox XML export.",
           scenarioId: scenario.id,
           approved: false,
+          chainValid: chain.valid,
+          expectedBillSha256,
         },
         { status: 403, headers: { "Cache-Control": "no-store" } }
       );

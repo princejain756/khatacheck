@@ -74,7 +74,9 @@ export function WorkbenchClient({
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      setDwellSec((s) => s + 1);
+      if (typeof document === "undefined" || document.visibilityState === "visible") {
+        setDwellSec((s) => s + 1);
+      }
     }, 1000);
     return () => window.clearInterval(id);
   }, []);

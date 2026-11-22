@@ -172,7 +172,8 @@ export function canonicalizeVoiceUnit(raw: string | null | undefined): string | 
 }
 
 const SHORTAGE_CUES = /\b(?:kum|kam|short|shortage|missing|damaged?|broken|nahi\s+aaya|nhi\s+aaya|mili\s+nahi)\b/i;
-const NEGATION_CUES = /\b(?:short\s+nahi|nahi\s+short|no\s+shortage|all\s+received|poora\s+aaya|sab\s+theek)\b/i;
+const NEGATION_CUES =
+  /\b(?:short\s+nahi|shortage\s+nahi|missing\s+nahi|nahi\s+short|no\s+shortage|all\s+received|poora\s+aaya|sab\s+theek|nothing\s+(?:is\s+|are\s+|was\s+|were\s+)?(?:short|shortage|missing|damaged?|broken|kum|kam)|(?:is\s+|are\s+|was\s+|were\s+)?not\s+(?:short|shortage|missing|damaged?|broken|kum|kam)|(?<!\bbill\s)(?<!\binv\s)(?<!\binvoice\s)no\s+(?:(?:any|more|further|single)\s+)?(?:[a-z]+\s+){0,2}?(?:short|shortage|missing|damaged?|broken|kum|kam))\b/i;
 
 const DEVANAGARI_DIGITS: Readonly<Record<string, string>> = {
   "०": "0",
@@ -375,13 +376,62 @@ export function parseVoiceRemarks(
       const tokens = clause.toLowerCase().split(/\s+/);
       const cleanToken = (t: string | undefined): string =>
         (t ?? "").replace(/^[(\["']+|[)\]"'.,;:!?]+$/g, "");
-      const unitPairs: Array<{ qty: number; unit: string }> = [];
+
+      const excludedIdx = new Set<number>();
+      for (let i = 0; i < tokens.length; i += 1) {
+        const w = cleanToken(tokens[i]);
+        const wNext = cleanToken(tokens[i + 1]);
+        const markForwardDenom = (startIdx: number) => {
+          let cursor = startIdx;
+          const skipWord = cleanToken(tokens[cursor]);
+          if (skipWord === "for" || skipWord === "at") {
+            cursor += 1;
+          }
+          const qTok = cleanToken(tokens[cursor]);
+          const att = /^(\d+(?:\.\d+)?)([a-z]+)$/.exec(qTok);
+          if (att && UNIT_WORDS.has(att[2])) {
+            excludedIdx.add(cursor);
+            return;
+          }
+          if (parseQtyToken(qTok) !== null || isZeroQtyToken(qTok)) {
+            excludedIdx.add(cursor);
+            const uTok = cleanToken(tokens[cursor + 1]);
+            if (uTok && UNIT_WORDS.has(uTok)) {
+              excludedIdx.add(cursor + 1);
+            }
+          }
+        };
+
+        if (w === "out" && wNext === "of") {
+          markForwardDenom(i + 2);
+        } else if (w === "billed" || w === "invoiced") {
+          markForwardDenom(i + 1);
+        } else if ((w === "me" || w === "mein") && wNext === "se") {
+          const prevTok = cleanToken(tokens[i - 1]);
+          const prevPrevTok = cleanToken(tokens[i - 2]);
+          const attPrev = /^(\d+(?:\.\d+)?)([a-z]+)$/.exec(prevTok);
+          if (attPrev && UNIT_WORDS.has(attPrev[2])) {
+            excludedIdx.add(i - 1);
+          } else if (
+            prevTok &&
+            UNIT_WORDS.has(prevTok) &&
+            (parseQtyToken(prevPrevTok) !== null || isZeroQtyToken(prevPrevTok))
+          ) {
+            excludedIdx.add(i - 1);
+            excludedIdx.add(i - 2);
+          } else if (parseQtyToken(prevTok) !== null || isZeroQtyToken(prevTok)) {
+            excludedIdx.add(i - 1);
+          }
+        }
+      }
+
+      const unitPairs: Array<{ qty: number; unit: string; startIdx: number; endIdx: number }> = [];
       const consumedIdx = new Set<number>();
       let fallbackQty: number | null = null;
       let hasExplicitZeroClaim = false;
 
       for (let i = 0; i < tokens.length; i += 1) {
-        if (consumedIdx.has(i)) continue;
+        if (consumedIdx.has(i) || excludedIdx.has(i)) continue;
         const tok = cleanToken(tokens[i]);
         const attached = /^(\d+(?:\.\d+)?)([a-z]+)$/.exec(tok);
         if (attached && UNIT_WORDS.has(attached[2])) {
@@ -392,7 +442,7 @@ export function parseVoiceRemarks(
             continue;
           }
           if (Number.isFinite(aq) && aq > 0 && aq <= 10000) {
-            unitPairs.push({ qty: aq, unit: attached[2] });
+            unitPairs.push({ qty: aq, unit: attached[2], startIdx: i, endIdx: i });
             consumedIdx.add(i);
             continue;
           }
@@ -405,10 +455,10 @@ export function parseVoiceRemarks(
           if (prev && ZERO_CODE_PREFIXES.has(prev)) {
             continue;
           }
-          if (next && UNIT_WORDS.has(next)) {
+          if (next && UNIT_WORDS.has(next) && !excludedIdx.has(i + 1)) {
             hasExplicitZeroClaim = true;
             consumedIdx.add(i + 1);
-          } else if (prev && UNIT_WORDS.has(prev)) {
+          } else if (prev && UNIT_WORDS.has(prev) && !excludedIdx.has(i - 1)) {
             hasExplicitZeroClaim = true;
             consumedIdx.add(i - 1);
           } else if (
@@ -426,14 +476,14 @@ export function parseVoiceRemarks(
         if (q !== null) {
           const next = cleanToken(tokens[i + 1]);
           const prev = cleanToken(tokens[i - 1]);
-          if (next && UNIT_WORDS.has(next) && !consumedIdx.has(i + 1)) {
-            unitPairs.push({ qty: q, unit: next });
+          if (next && UNIT_WORDS.has(next) && !consumedIdx.has(i + 1) && !excludedIdx.has(i + 1)) {
+            unitPairs.push({ qty: q, unit: next, startIdx: i, endIdx: i + 1 });
             consumedIdx.add(i);
             consumedIdx.add(i + 1);
             continue;
           }
-          if (prev && UNIT_WORDS.has(prev) && !consumedIdx.has(i - 1)) {
-            unitPairs.push({ qty: q, unit: prev });
+          if (prev && UNIT_WORDS.has(prev) && !consumedIdx.has(i - 1) && !excludedIdx.has(i - 1)) {
+            unitPairs.push({ qty: q, unit: prev, startIdx: i - 1, endIdx: i });
             consumedIdx.add(i);
             consumedIdx.add(i - 1);
             continue;
@@ -462,14 +512,30 @@ export function parseVoiceRemarks(
             descUnitPairs.push({ qty: dq, canonUnit: dc });
           }
         }
-        const isPackDescriptor = (p: { qty: number; unit: string }): boolean => {
-          const canon = canonicalizeVoiceUnit(p.unit);
-          if (!canon) return false;
-          return descUnitPairs.some(
-            (dp) => dp.qty === p.qty && dp.canonUnit === canon
+        const isShortageAdjacent = (p: { startIdx: number; endIdx: number }): boolean => {
+          const nextTok = cleanToken(tokens[p.endIdx + 1]);
+          const prevTok = cleanToken(tokens[p.startIdx - 1]);
+          return (
+            (Boolean(nextTok) && SHORTAGE_CUES.test(nextTok)) ||
+            (Boolean(prevTok) && SHORTAGE_CUES.test(prevTok))
           );
         };
-        const nonPackPairs = unitPairs.filter((p) => !isPackDescriptor(p));
+        const strippedPairIndices = new Set<number>();
+        for (const dp of descUnitPairs) {
+          const matchingIndices = unitPairs
+            .map((p, idx) => ({ p, idx }))
+            .filter(
+              ({ p, idx }) =>
+                !strippedPairIndices.has(idx) &&
+                p.qty === dp.qty &&
+                canonicalizeVoiceUnit(p.unit) === dp.canonUnit
+            )
+            .sort((a, b) => Number(isShortageAdjacent(a.p)) - Number(isShortageAdjacent(b.p)) || a.idx - b.idx);
+          if (matchingIndices.length > 0) {
+            strippedPairIndices.add(matchingIndices[0].idx);
+          }
+        }
+        const nonPackPairs = unitPairs.filter((_, idx) => !strippedPairIndices.has(idx));
         if (nonPackPairs.length > 0) {
           const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);
           const exactUnitMatch = nonPackPairs.find(

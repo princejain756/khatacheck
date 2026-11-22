@@ -17,6 +17,18 @@ import { parseVoiceRemarks } from "./voice-parser";
 
 export const CLARITY_MIN_THRESHOLD = 85;
 
+export function computeBillSha256(invoice: InvoiceInput): string {
+  const billCanonical = JSON.stringify({
+    id: invoice.id,
+    vendorGstin: invoice.vendorGstin,
+    invoiceNumber: invoice.invoiceNumber,
+    invoiceDate: invoice.invoiceDate,
+    declaredGrandTotalPaise: invoice.declaredGrandTotalPaise,
+    lines: invoice.lines.map((l) => [l.lineNumber, l.sku, l.hsnCode, l.qtyMilli, l.declaredLineTotalPaise]),
+  });
+  return crypto.createHash("sha256").update(billCanonical, "utf8").digest("hex");
+}
+
 export function verifyInvoicePipeline(
   invoice: InvoiceInput,
   options?: {
@@ -30,15 +42,7 @@ export function verifyInvoicePipeline(
   const priorBills = options?.priorBills ?? [];
   const enablePiiScrub = options?.enablePiiScrub !== false;
 
-  const billCanonical = JSON.stringify({
-    id: invoice.id,
-    vendorGstin: invoice.vendorGstin,
-    invoiceNumber: invoice.invoiceNumber,
-    invoiceDate: invoice.invoiceDate,
-    declaredGrandTotalPaise: invoice.declaredGrandTotalPaise,
-    lines: invoice.lines.map((l) => [l.lineNumber, l.sku, l.hsnCode, l.qtyMilli, l.declaredLineTotalPaise]),
-  });
-  const billSha256 = crypto.createHash("sha256").update(billCanonical, "utf8").digest("hex");
+  const billSha256 = computeBillSha256(invoice);
 
   // 1. Pre-flight DPDP PII Scrub BEFORE extraction/voice inference
   const notesScrub = enablePiiScrub

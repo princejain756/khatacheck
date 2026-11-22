@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { NextRequest } from "next/server";
 import { POST as analyzePost } from "../src/app/api/analyze/route";
+import { GET as exportGet } from "../src/app/api/export/route";
 import { POST as transcribePost } from "../src/app/api/transcribe/route";
 import { scrubPiiForModelEgress } from "../src/lib/dpdp-privacy";
-import { verifyInvoicePipeline } from "../src/lib/engine";
+import { computeBillSha256, verifyInvoicePipeline } from "../src/lib/engine";
 import { DEMO_PRIOR_BILLS, DEMO_SCENARIOS, DEMO_VENDOR_HISTORY } from "../src/lib/bill-scenarios";
 import {
   HSN_SCHEDULE_60,
@@ -13,6 +16,7 @@ import {
   lookupHsnRule,
   makeValidGstin,
   validateGstin,
+  verifyInvoiceDeterministic,
 } from "../src/lib/gst-rules";
 import { scoreImageClarity } from "../src/lib/image-clarity";
 import { formatPaiseINR, halfUpDiv, parseINRToPaise } from "../src/lib/money";
@@ -23,8 +27,10 @@ import {
 import {
   GENESIS_HASH,
   buildTallyPurchaseXml,
+  computeAutomationBiasMonitor,
   computeLedgerEntryHash,
   isInvoiceApprovedInEvents,
+  seedDefaultLedger,
   verifyHashChain,
 } from "../src/lib/governance-ledger";
 import { scanUntrustedInvoiceText } from "../src/lib/prompt-guard";
@@ -365,7 +371,7 @@ test("Deterministic OCR table parser extracts multi-line GST invoice text into e
   assert.equal(slabFault.variancePaise, "9880");
 });
 
-function validateTallyPurchaseXml(xml: string): {
+function validateTallyPurchaseXml(xml: string, expectedInterstate = false): {
   ledgerCount: number;
   balancePaise: bigint;
   dateYyyymmdd: string;
@@ -406,7 +412,17 @@ function validateTallyPurchaseXml(xml: string): {
   assert.ok(dateMatch, "Missing YYYYMMDD <DATE> element");
 
   const entryBlocks = [...body.matchAll(/<ALLLEDGERENTRIES\.LIST>([\s\S]*?)<\/ALLLEDGERENTRIES\.LIST>/g)];
-  assert.ok(entryBlocks.length >= 4, "Expected at least 4 Tally ledger entries");
+  if (expectedInterstate) {
+    assert.equal(entryBlocks.length, 3, "Expected 3 Tally ledger entries for interstate IGST voucher");
+    assert.ok(body.includes("<LEDGERNAME>Input IGST</LEDGERNAME>"));
+    assert.equal(body.includes("<LEDGERNAME>Input CGST</LEDGERNAME>"), false);
+    assert.equal(body.includes("<LEDGERNAME>Input SGST</LEDGERNAME>"), false);
+  } else {
+    assert.ok(entryBlocks.length >= 4, "Expected at least 4 Tally ledger entries for intrastate voucher");
+    assert.ok(body.includes("<LEDGERNAME>Input CGST</LEDGERNAME>"));
+    assert.ok(body.includes("<LEDGERNAME>Input SGST</LEDGERNAME>"));
+    assert.equal(body.includes("<LEDGERNAME>Input IGST</LEDGERNAME>"), false);
+  }
 
   let balancePaise = 0n;
   for (const blk of entryBlocks) {
@@ -436,8 +452,10 @@ function validateTallyPurchaseXml(xml: string): {
 test("TallyPrime Purchase Voucher XML validator verifies shape, balanced BigInt debit/credit sum = 0, YYYYMMDD date, and XML escaping", () => {
   for (const sc of DEMO_SCENARIOS) {
     const xml = buildTallyPurchaseXml(sc.invoice);
-    const checked = validateTallyPurchaseXml(xml);
+    const isInterstate = sc.invoice.supplierStateCode !== sc.invoice.placeOfSupplyStateCode;
+    const checked = validateTallyPurchaseXml(xml, isInterstate);
     assert.equal(checked.balancePaise, 0n);
+    assert.equal(checked.ledgerCount, isInterstate ? 3 : 4);
     assert.equal(checked.dateYyyymmdd, sc.invoice.invoiceDate.replace(/-/g, ""));
   }
 
@@ -453,7 +471,7 @@ test("TallyPrime Purchase Voucher XML validator verifies shape, balanced BigInt 
     declaredGrandTotalPaise: "105001",
   };
   const escapedXml = buildTallyPurchaseXml(specialCharsInvoice);
-  const checkedSpecial = validateTallyPurchaseXml(escapedXml);
+  const checkedSpecial = validateTallyPurchaseXml(escapedXml, false);
   assert.equal(checkedSpecial.balancePaise, 0n);
   assert.equal(checkedSpecial.dateYyyymmdd, "20261122");
   assert.ok(escapedXml.includes("Rao &amp; Sons &lt;Wholesale&gt; &quot;Main&quot; &apos;BLR&apos;"));
@@ -904,4 +922,237 @@ test("Spelled-out sub-units like milligrams and millilitres route mismatches to 
   assert.equal(batchCodeHits[0].kind, "shortage");
   assert.equal(batchCodeHits[0].shortageQty, 2);
   assert.equal(batchCodeHits[0].variancePaise, "24780");
+});
+
+test("Regression checks for voice out-of denominators, tax split and header totals, buyer GSTIN isolation, spoken emails, unrounded bias median, and ledger billSha256 gate", async () => {
+  const scn01 = DEMO_SCENARIOS.find((s) => s.id === "SCN-01-KIRANA-SHORT");
+  assert.ok(scn01);
+  const packLine = { ...scn01.invoice.lines[0], description: "Arhar / Toor Dal (1 kg bags)" };
+  const decimalPackLine = { ...scn01.invoice.lines[0], description: "Arhar / Toor Dal (1.0 kilogram bags)" };
+
+  // 1. Voice parser out-of denominators, negation cues, and per-occurrence descriptor stripping
+  const oneKgOutOfTwenty = parseVoiceRemarks("Arhar Dal 1 kg bags had 1 kg missing out of 20 kg", [packLine]);
+  assert.equal(oneKgOutOfTwenty.length, 1);
+  assert.equal(oneKgOutOfTwenty[0].kind, "shortage");
+  assert.equal(oneKgOutOfTwenty[0].shortageQty, 1);
+  assert.equal(oneKgOutOfTwenty[0].variancePaise, "12390");
+
+  const oneKgDecimalPack = parseVoiceRemarks("Arhar Dal 1 kg bags had 1 kg missing out of 20 kg", [decimalPackLine]);
+  assert.equal(oneKgDecimalPack.length, 1);
+  assert.equal(oneKgDecimalPack[0].shortageQty, 1);
+  assert.equal(oneKgDecimalPack[0].variancePaise, "12390");
+
+  const twoBareOutOfTwenty = parseVoiceRemarks("Arhar Dal 1 kg bags had 2 missing out of 20 kg", [packLine]);
+  assert.equal(twoBareOutOfTwenty.length, 1);
+  assert.equal(twoBareOutOfTwenty[0].shortageQty, 2);
+  assert.equal(twoBareOutOfTwenty[0].variancePaise, "24780");
+
+  const hindiMeSeHits = parseVoiceRemarks("Arhar Dal 20 kg me se 2 kg kum hai", [packLine]);
+  assert.equal(hindiMeSeHits.length, 1);
+  assert.equal(hindiMeSeHits[0].shortageQty, 2);
+  assert.equal(hindiMeSeHits[0].variancePaise, "24780");
+
+  assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had no bags missing out of 20 kg", [packLine]).length, 0);
+  assert.equal(parseVoiceRemarks("Arhar Dal 1 kg bags had no kg missing out of 20 kg", [packLine]).length, 0);
+  assert.equal(parseVoiceRemarks("Arhar Dal nothing missing from 20 kg", [packLine]).length, 0);
+  assert.equal(parseVoiceRemarks("Arhar Dal is not missing any kg", [packLine]).length, 0);
+
+  // 2. GST tax split (CGST+SGST vs IGST) and header tax/taxable subtotal validation
+  const cleanLine = {
+    ...scn01.invoice.lines[0],
+    qtyMilli: 1000,
+    unitRatePaise: "10000",
+    discountPaise: "0",
+    declaredTaxablePaise: "10000",
+    declaredCgstBps: 250,
+    declaredSgstBps: 250,
+    declaredIgstBps: 0,
+    declaredCgstPaise: "250",
+    declaredSgstPaise: "250",
+    declaredIgstPaise: "0",
+    declaredLineTotalPaise: "10500",
+  };
+  const cleanInvoice: InvoiceInput = {
+    ...scn01.invoice,
+    id: "TEST-CLEAN-SPLIT",
+    voiceTranscriptRaw: undefined,
+    roundOffPaise: "0",
+    declaredTaxableSubtotalPaise: "10000",
+    declaredTotalTaxPaise: "500",
+    declaredGrandTotalPaise: "10500",
+    lines: [cleanLine],
+  };
+  assert.equal(verifyInvoiceDeterministic(cleanInvoice, [], []).faults.length, 0);
+
+  const tamperedHeaderTax: InvoiceInput = {
+    ...cleanInvoice,
+    declaredTotalTaxPaise: "123456789",
+  };
+  const detTamperedHeaderTax = verifyInvoiceDeterministic(tamperedHeaderTax, [], []);
+  assert.ok(detTamperedHeaderTax.faults.some((f) => f.ruleId === "MATH-HEADER-TAX-CHECK"));
+  assert.equal(verifyInvoicePipeline(tamperedHeaderTax).exportEligible, false);
+
+  const tamperedHeaderSubtotal: InvoiceInput = {
+    ...cleanInvoice,
+    declaredTaxableSubtotalPaise: "99999",
+  };
+  const detTamperedSubtotal = verifyInvoiceDeterministic(tamperedHeaderSubtotal, [], []);
+  assert.ok(detTamperedSubtotal.faults.some((f) => f.ruleId === "MATH-HEADER-TAX-CHECK"));
+  assert.equal(verifyInvoicePipeline(tamperedHeaderSubtotal).exportEligible, false);
+
+  const tamperedLineSplit: InvoiceInput = {
+    ...cleanInvoice,
+    lines: [{ ...cleanLine, declaredCgstPaise: "123456789" }],
+  };
+  const detTamperedLineSplit = verifyInvoiceDeterministic(tamperedLineSplit, [], []);
+  assert.ok(detTamperedLineSplit.faults.some((f) => f.ruleId === "GST-SPLIT-COMPONENT-CHECK"));
+  assert.equal(verifyInvoicePipeline(tamperedLineSplit).exportEligible, false);
+
+  const intraSwappedToIgst: InvoiceInput = {
+    ...cleanInvoice,
+    lines: [
+      {
+        ...cleanLine,
+        declaredCgstBps: 0,
+        declaredSgstBps: 0,
+        declaredIgstBps: 500,
+        declaredCgstPaise: "0",
+        declaredSgstPaise: "0",
+        declaredIgstPaise: "500",
+      },
+    ],
+  };
+  const detIntraIgst = verifyInvoiceDeterministic(intraSwappedToIgst, [], []);
+  assert.ok(detIntraIgst.faults.some((f) => f.ruleId === "GST-SPLIT-COMPONENT-CHECK"));
+  assert.equal(verifyInvoicePipeline(intraSwappedToIgst).exportEligible, false);
+
+  const interSwappedToCgst: InvoiceInput = {
+    ...cleanInvoice,
+    supplierStateCode: "29",
+    placeOfSupplyStateCode: "27",
+  };
+  const detInterCgst = verifyInvoiceDeterministic(interSwappedToCgst, [], []);
+  assert.ok(detInterCgst.faults.some((f) => f.ruleId === "GST-SPLIT-COMPONENT-CHECK"));
+
+  const scn04 = DEMO_SCENARIOS.find((s) => s.id === "SCN-04-DUPLICATE-CHALLAN");
+  assert.ok(scn04);
+  const scn04Xml = buildTallyPurchaseXml(scn04.invoice);
+  assert.equal(validateTallyPurchaseXml(scn04Xml, true).ledgerCount, 3);
+
+  // 3. Buyer GSTIN must never promote into vendorGstin when supplier GSTIN is omitted
+  const buyerOnlyOcr = [
+    "SHREE GANESH WHOLESALE DISTRIBUTORS",
+    "Invoice No: SGW/26/901 Date: 21-11-2026",
+    "Buyer (To): Ganesh Kirana Stores",
+    "GSTIN : 29GANKS4501D1ZS",
+    "1 | Arhar Dal | 0713 | 10 | kg | 120.00 | 5% | 1260.00",
+    "Grand Total Rs. 1,260.00",
+  ].join("\n");
+  const parsedBuyerOnly = parseOcrInvoiceText(buyerOnlyOcr, { pageConfidence: 92 });
+  assert.equal(parsedBuyerOnly.vendorGstin, "");
+  assert.equal(parsedBuyerOnly.buyerGstin, "29GANKS4501D1ZS");
+
+  // 4. Spoken-form emails scrubbed cleanly before egress
+  const spokenEmail = scrubPiiForModelEgress(
+    "5 kg of Arhar Dhal are short and missing. Customer email ramesh.sharma at gmail.com."
+  );
+  assert.equal(spokenEmail.redactionCount, 1);
+  assert.deepEqual(spokenEmail.redactedKinds, ["personal_email"]);
+  assert.equal(
+    spokenEmail.scrubbedText,
+    "5 kg of Arhar Dhal are short and missing. Customer email [EMAIL_REDACTED]."
+  );
+
+  const multiDotSpoken = scrubPiiForModelEgress("Send copy to alice dot lee at company dot co dot in");
+  assert.equal(multiDotSpoken.redactionCount, 1);
+  assert.deepEqual(multiDotSpoken.redactedKinds, ["personal_email"]);
+  assert.equal(multiDotSpoken.scrubbedText.includes("alice"), false);
+
+  // 5. Automation Bias Monitor checks strict < 3000ms on unrounded even-length median
+  const baseEvt: AuditLedgerEvent = {
+    seq: 1,
+    eventId: "EVT-BIAS-1",
+    tenantId: "store-ganesh-blr-01",
+    invoiceId: "SCN-01-KIRANA-SHORT",
+    invoiceNumber: "INV/1",
+    vendorName: "Vendor",
+    billSha256: "a".repeat(64),
+    billReceivedTs: "2026-11-20T09:14:00.000Z",
+    flagSentTs: "2026-11-20T09:14:00.200Z",
+    ownerApprovalTs: "2026-11-20T09:14:05.000Z",
+    modelId: "m",
+    promptHash: "p",
+    ruleBundleVersion: "v",
+    fieldConfidencesMin: 0.95,
+    sourceCropBbox: null,
+    ruleChecks: [],
+    varianceAtRiskPaise: "0",
+    decision: "approved_flag",
+    overrideReason: "",
+    dwellMs: 2999,
+    actorRef: "owner_ganesh_01",
+    prevHash: GENESIS_HASH,
+    entryHash: "b".repeat(64),
+  };
+  const fiftyEvents: AuditLedgerEvent[] = Array.from({ length: 50 }, (_, idx) => ({
+    ...baseEvt,
+    seq: idx + 1,
+    eventId: `EVT-BIAS-${idx + 1}`,
+    dwellMs: idx < 25 ? 2999 : 3000,
+  }));
+  const monitor2999_5 = computeAutomationBiasMonitor(fiftyEvents);
+  assert.equal(monitor2999_5.alertActive, true);
+  assert.equal(monitor2999_5.medianDwellMs, 3000);
+  const fiftyAt3000 = fiftyEvents.map((e) => ({ ...e, dwellMs: 3000 }));
+  assert.equal(computeAutomationBiasMonitor(fiftyAt3000).alertActive, false);
+
+  // 6. Seeded ledger uses real computeBillSha256 and /api/export enforces chain + billSha256 integrity
+  const ledgerPath = path.join(process.cwd(), "data", "audit-ledger.jsonl");
+  const hadLedger = fs.existsSync(ledgerPath);
+  const prevLedgerBytes = hadLedger ? fs.readFileSync(ledgerPath, "utf8") : "";
+  try {
+    const seeded = seedDefaultLedger();
+    assert.equal(verifyHashChain(seeded).valid, true);
+    assert.equal(seeded[0].billSha256, computeBillSha256(scn01.invoice));
+
+    const okResp = await exportGet(
+      new NextRequest("http://localhost:4290/api/export?format=tally-xml&scenarioId=SCN-01-KIRANA-SHORT")
+    );
+    assert.equal(okResp.status, 200);
+    const okXml = await okResp.text();
+    assert.equal(validateTallyPurchaseXml(okXml, false).balancePaise, 0n);
+
+    // Tamper billSha256 in the on-disk ledger with recomputed chain hash -> export gate must reject 403
+    const mismatchedFirst = { ...seeded[0], billSha256: "f".repeat(64) };
+    const { entryHash: _old0, ...rest0 } = mismatchedFirst;
+    const recomputed: AuditLedgerEvent[] = [];
+    let prev = GENESIS_HASH;
+    for (let i = 0; i < seeded.length; i += 1) {
+      const src = i === 0 ? rest0 : (({ entryHash: _h, ...r }) => r)(seeded[i]);
+      const base = { ...src, prevHash: prev };
+      const hash = computeLedgerEntryHash(prev, base);
+      recomputed.push({ ...base, entryHash: hash });
+      prev = hash;
+    }
+    fs.writeFileSync(ledgerPath, recomputed.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+    const mismatchResp = await exportGet(
+      new NextRequest("http://localhost:4290/api/export?format=tally-xml&scenarioId=SCN-01-KIRANA-SHORT")
+    );
+    assert.equal(mismatchResp.status, 403);
+
+    // Corrupt entryHash on disk -> export gate must reject 403
+    const broken = [...seeded];
+    broken[0] = { ...broken[0], varianceAtRiskPaise: "999999999" };
+    fs.writeFileSync(ledgerPath, broken.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf8");
+    const brokenResp = await exportGet(
+      new NextRequest("http://localhost:4290/api/export?format=tally-xml&scenarioId=SCN-01-KIRANA-SHORT")
+    );
+    assert.equal(brokenResp.status, 403);
+  } finally {
+    if (hadLedger) {
+      fs.writeFileSync(ledgerPath, prevLedgerBytes, "utf8");
+    } else if (fs.existsSync(ledgerPath)) {
+      fs.unlinkSync(ledgerPath);
+    }
+  }
 });

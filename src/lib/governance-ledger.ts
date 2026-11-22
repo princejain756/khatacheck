@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { DEMO_SCENARIOS } from "./bill-scenarios";
+import { computeBillSha256 } from "./engine";
 import { RULE_BUNDLE_VERSION } from "./gst-rules";
 import { formatPaiseDecimalString } from "./money";
 import type { AuditLedgerEvent, CropBbox, InvoiceInput, ReviewDecision } from "./types";
@@ -44,6 +46,13 @@ export function seedDefaultLedger(): AuditLedgerEvent[] {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   }
+  const billHashFor = (invoiceId: string): string => {
+    const sc = DEMO_SCENARIOS.find((s) => s.id === invoiceId);
+    if (!sc) {
+      throw new Error(`Missing demo scenario ${invoiceId} for default ledger seed`);
+    }
+    return computeBillSha256(sc.invoice);
+  };
   const initialSeeds: Array<Omit<AuditLedgerEvent, "seq" | "prevHash" | "entryHash">> = [
     {
       eventId: "EVT-1001",
@@ -51,7 +60,7 @@ export function seedDefaultLedger(): AuditLedgerEvent[] {
       invoiceId: "SCN-01-KIRANA-SHORT",
       invoiceNumber: "SLGW/24-25/0736",
       vendorName: "Shree Lakshmi General Wholesalers",
-      billSha256: "416903710a69cff7855d3ebebada9c5fa3067e6ccd5b589fce796a0be736af87",
+      billSha256: billHashFor("SCN-01-KIRANA-SHORT"),
       billReceivedTs: "2026-11-20T09:14:00.000Z",
       flagSentTs: "2026-11-20T09:14:00.412Z",
       ownerApprovalTs: "2026-11-20T09:14:28.900Z",
@@ -73,7 +82,7 @@ export function seedDefaultLedger(): AuditLedgerEvent[] {
       invoiceId: "SCN-02-PHARMACY-HSN",
       invoiceNumber: "MED/26-27/4418",
       vendorName: "Kaveri Surgical & Pharma Distributors",
-      billSha256: "f412bc194aa279d0e8c331f5130a870cc41e2aa0998b7c0018a6235b79c4d812",
+      billSha256: billHashFor("SCN-02-PHARMACY-HSN"),
       billReceivedTs: "2026-11-20T11:42:10.000Z",
       flagSentTs: "2026-11-20T11:42:10.355Z",
       ownerApprovalTs: "2026-11-20T11:42:46.100Z",
@@ -95,7 +104,7 @@ export function seedDefaultLedger(): AuditLedgerEvent[] {
       invoiceId: "SCN-03-TEXTILE-DRIFT",
       invoiceNumber: "KPT/26-27/1190",
       vendorName: "Karnataka Powerloom Textiles Pvt Ltd",
-      billSha256: "7b21ee341ac98d44f08c237f92b4e5a011223344556677889900aabbccddeeff",
+      billSha256: billHashFor("SCN-03-TEXTILE-DRIFT"),
       billReceivedTs: "2026-11-21T07:20:00.000Z",
       flagSentTs: "2026-11-21T07:20:00.289Z",
       ownerApprovalTs: "2026-11-21T07:20:42.800Z",
@@ -116,8 +125,8 @@ export function seedDefaultLedger(): AuditLedgerEvent[] {
       tenantId: "store-ganesh-blr-01",
       invoiceId: "SCN-05-PROMPT-INJECT",
       invoiceNumber: "ADV/26-27/9901",
-      vendorName: "Unverified Trader Demo Co",
-      billSha256: "10a3b9c8d7e6f501928374650192837465019283746501928374650192837465",
+      vendorName: "Apex Wholesale Traders",
+      billSha256: billHashFor("SCN-05-PROMPT-INJECT"),
       billReceivedTs: "2026-11-21T10:05:00.000Z",
       flagSentTs: "2026-11-21T10:05:00.198Z",
       ownerApprovalTs: "2026-11-21T10:05:31.500Z",
@@ -165,11 +174,16 @@ export function readLedgerEvents(): AuditLedgerEvent[] {
   return events;
 }
 
-export function isInvoiceApprovedInEvents(events: AuditLedgerEvent[], invoiceId: string): boolean {
+export function isInvoiceApprovedInEvents(
+  events: AuditLedgerEvent[],
+  invoiceId: string,
+  expectedBillSha256?: string
+): boolean {
   return events.some(
     (e) =>
       e.invoiceId === invoiceId &&
-      (e.decision === "approved_flag" || e.decision === "overridden_clean")
+      (e.decision === "approved_flag" || e.decision === "overridden_clean") &&
+      (!expectedBillSha256 || e.billSha256 === expectedBillSha256)
   );
 }
 
@@ -370,15 +384,26 @@ export function computeAutomationBiasMonitor(events: AuditLedgerEvent[]): Automa
     .sort((a, b) => a - b);
 
   let medianDwellMs = 0;
+  let exactMedianMs = 0;
+  let medianBelow3s = false;
   if (dwells.length > 0) {
     const mid = Math.floor(dwells.length / 2);
-    medianDwellMs = dwells.length % 2 === 1 ? dwells[mid] : Math.round((dwells[mid - 1] + dwells[mid]) / 2);
+    if (dwells.length % 2 === 1) {
+      medianDwellMs = dwells[mid];
+      exactMedianMs = dwells[mid];
+      medianBelow3s = dwells[mid] > 0 && dwells[mid] < 3000;
+    } else {
+      const pairSum = dwells[mid - 1] + dwells[mid];
+      medianDwellMs = Math.round(pairSum / 2);
+      exactMedianMs = pairSum / 2;
+      medianBelow3s = pairSum > 0 && pairSum < 6000;
+    }
   }
 
   const minThreshold = 50;
   const thresholdMet = completedCount >= minThreshold;
   const exactApprovalPct = completedCount > 0 ? (approvedCount * 100) / completedCount : 0;
-  const alertActive = thresholdMet && approvedCount * 100 > 95 * completedCount && medianDwellMs > 0 && medianDwellMs < 3000;
+  const alertActive = thresholdMet && approvedCount * 100 > 95 * completedCount && medianBelow3s;
   const alertApprovalRateLabel =
     approvalRatePct > 95
       ? String(approvalRatePct)
@@ -388,8 +413,9 @@ export function computeAutomationBiasMonitor(events: AuditLedgerEvent[]): Automa
 
   let statusText = `Formal alert suppressed below ${minThreshold} completed decisions (n=${completedCount}).`;
   if (thresholdMet) {
+    const dwellLabelSec = (exactMedianMs / 1000).toFixed(exactMedianMs >= 2990 && exactMedianMs < 3000 ? 4 : 2);
     statusText = alertActive
-      ? `AUTOMATION BIAS WARNING: Approval rate ${alertApprovalRateLabel}% (>95%) with ${(medianDwellMs / 1000).toFixed(2)}s median dwell (<3.0s). Human review warning raised.`
+      ? `AUTOMATION BIAS WARNING: Approval rate ${alertApprovalRateLabel}% (>95%) with ${dwellLabelSec}s median dwell (<3.0s). Human review warning raised.`
       : `Healthy human oversight: Approval rate ${approvalRatePct}% and ${(medianDwellMs / 1000).toFixed(1)}s median foreground dwell across n=${completedCount} decisions.`;
   }
 
@@ -419,10 +445,35 @@ export function buildTallyPurchaseXml(invoice: InvoiceInput): string {
   const yyyymmdd = invoice.invoiceDate.replace(/-/g, "");
   const totalDec = formatPaiseDecimalString(invoice.declaredGrandTotalPaise);
   const taxableDec = formatPaiseDecimalString(invoice.declaredTaxableSubtotalPaise);
-  const halfTax = BigInt(invoice.declaredTotalTaxPaise || "0") / 2n;
-  const remTax = BigInt(invoice.declaredTotalTaxPaise || "0") - halfTax;
-  const cgstDec = formatPaiseDecimalString(halfTax);
-  const sgstDec = formatPaiseDecimalString(remTax);
+  const totalTaxPaise = BigInt(invoice.declaredTotalTaxPaise || "0");
+  const supState = (invoice.supplierStateCode || invoice.vendorGstin.slice(0, 2) || "").trim().toUpperCase();
+  const posState = (invoice.placeOfSupplyStateCode || supState).trim().toUpperCase();
+  const isInterstate = Boolean(supState && posState && supState !== posState);
+
+  let taxLedgerXml: string;
+  if (isInterstate) {
+    const igstDec = formatPaiseDecimalString(totalTaxPaise);
+    taxLedgerXml = `          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>Input IGST</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+            <AMOUNT>-${igstDec}</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>`;
+  } else {
+    const halfTax = totalTaxPaise / 2n;
+    const remTax = totalTaxPaise - halfTax;
+    const cgstDec = formatPaiseDecimalString(halfTax);
+    const sgstDec = formatPaiseDecimalString(remTax);
+    taxLedgerXml = `          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>Input CGST</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+            <AMOUNT>-${cgstDec}</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>
+          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>Input SGST</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+            <AMOUNT>-${sgstDec}</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>`;
+  }
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!-- KhataCheck Sandbox Export Profile: Requires TallyPrime Disposable Company Import Verification Before Production Accounting Write -->
@@ -458,16 +509,7 @@ export function buildTallyPurchaseXml(invoice: InvoiceInput): string {
             <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
             <AMOUNT>-${taxableDec}</AMOUNT>
           </ALLLEDGERENTRIES.LIST>
-          <ALLLEDGERENTRIES.LIST>
-            <LEDGERNAME>Input CGST</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-            <AMOUNT>-${cgstDec}</AMOUNT>
-          </ALLLEDGERENTRIES.LIST>
-          <ALLLEDGERENTRIES.LIST>
-            <LEDGERNAME>Input SGST</LEDGERNAME>
-            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-            <AMOUNT>-${sgstDec}</AMOUNT>
-          </ALLLEDGERENTRIES.LIST>
+${taxLedgerXml}
         </VOUCHER>
       </TALLYMESSAGE>
     </DATA>
