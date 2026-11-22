@@ -308,17 +308,25 @@ function tokenizeRowForParsing(rawRow: string, expectedRowNum: number): string[]
     // Strip mismatched OCR parens (e.g. "138.00(") and trailing commas while preserving "(500 g)"
     const cleaned = rawTokens[k].replace(/^[)\s]+|[(\s,]+$/g, "");
     if (!cleaned) continue;
-    // Split pipe-glued 5/7-digit "<4-digit HSN>[1Il]<1-2 digit qty>" before a measurement unit
+    // Split pipe-glued HSN+qty before a unit: 5/7-digit "<hsn4>[1Il]<qty>" or pipe-wrapped 8/9-digit "[1Il]<hsn4>[1Il]<qty>[1Il]"
     const nextRaw = (rawTokens[k + 1] ?? "").replace(/^[)\s]+|[(\s,]+$/g, "");
     const nextTwoRaw = (rawTokens[k + 2] ?? "").replace(/^[)\s]+|[(\s,]+$/g, "");
+    const hasFollowingUnit = Boolean(
+      normalizeUnit(nextRaw) || (/^[1Il]$/.test(nextRaw) && normalizeUnit(nextTwoRaw))
+    );
     const gluedHsnQty = /^(\d{4})[1Il](\d{1,2})$/.exec(cleaned);
+    const wrappedHsnQty = /^[1Il](\d{4})[1Il](\d{1,2})[1Il]$/.exec(cleaned);
     if (
+      hasFollowingUnit &&
       gluedHsnQty &&
       (cleaned.length === 5 || cleaned.length === 7) &&
-      lookupHsnRule(gluedHsnQty[1]) &&
-      (normalizeUnit(nextRaw) || (/^[1Il]$/.test(nextRaw) && normalizeUnit(nextTwoRaw)))
+      lookupHsnRule(gluedHsnQty[1])
     ) {
       out.push(gluedHsnQty[1], gluedHsnQty[2]);
+      continue;
+    }
+    if (hasFollowingUnit && wrappedHsnQty && lookupHsnRule(wrappedHsnQty[1])) {
+      out.push(wrappedHsnQty[1], wrappedHsnQty[2]);
       continue;
     }
     // Split glued quantity+unit like "50Kg" or "10pkt"
@@ -509,6 +517,20 @@ function parseRowTokens(
 
   let qty = qtyObj.val;
   if (qty <= 0 || qty > 1_000_000) return null;
+
+  // Skip an OCR pipe artifact ("|" -> "1") between unit and unit rate when qty * next matches the line total
+  if (postQtyNums.length >= 3 && postQtyNums[0].val === 1) {
+    const lastVal = postQtyNums[postQtyNums.length - 1].val;
+    const altRate = postQtyNums[1].val;
+    if (
+      lastVal > 0 &&
+      qty < lastVal * 0.15 &&
+      qty * altRate >= lastVal * 0.65 &&
+      qty * altRate <= lastVal * 1.15
+    ) {
+      postQtyNums = postQtyNums.slice(1);
+    }
+  }
 
   const rateObj = postQtyNums[0];
   let rateRupees = rateObj.val;

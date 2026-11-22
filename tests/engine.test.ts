@@ -262,19 +262,28 @@ test("Laplacian clarity scoring distinguishes sharp invoice captures from Gaussi
   assert.equal(fallback.clarityMethod, "byte_entropy_fallback");
   assert.ok(fallback.clarityScore >= 0 && fallback.clarityScore <= 255);
 
-  const abstained = await extractAndParseInvoiceImage(blurBuf, "blurry-capture.png");
-  assert.equal(abstained.extractKind, "image_clarity_abstained");
-  assert.equal(abstained.ocrMeta.engine, "clarity_abstained");
-  assert.equal(abstained.ocrMeta.clarityScore, blurClarity.clarityScore);
-  const ver = verifyInvoicePipeline(abstained.invoice);
-  assert.equal(ver.abstainedClarity, true);
-  assert.equal(ver.recommendedAction, "retake_required");
+  const prevKey = process.env.GROQ_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  try {
+    const abstained = await extractAndParseInvoiceImage(blurBuf, "blurry-capture.png");
+    assert.equal(abstained.extractKind, "image_clarity_abstained");
+    assert.equal(abstained.ocrMeta.engine, "clarity_abstained");
+    assert.equal(abstained.ocrMeta.clarityScore, blurClarity.clarityScore);
+    const ver = verifyInvoicePipeline(abstained.invoice);
+    assert.equal(ver.abstainedClarity, true);
+    assert.equal(ver.recommendedAction, "retake_required");
 
-  const sharpOcr = await extractAndParseInvoiceImage(sharpBuf, "crisp-capture.png");
-  assert.equal(sharpOcr.extractKind, "image_ocr_tesseract");
-  assert.ok(sharpOcr.ocrMeta.clarityScore >= 100);
-  assert.ok(sharpOcr.invoice.lines.length >= 2);
-  assert.notEqual(sharpOcr.invoice.lines[0].sku, "CUSTOM-TEXT-LINE");
+    const sharpOcr = await extractAndParseInvoiceImage(sharpBuf, "crisp-capture.png");
+    assert.equal(sharpOcr.extractKind, "image_ocr_tesseract");
+    assert.ok(sharpOcr.ocrMeta.clarityScore >= 100);
+    assert.equal(sharpOcr.ocrMeta.usedLlmStructurer, false);
+    assert.ok(sharpOcr.invoice.lines.length >= 2);
+    assert.notEqual(sharpOcr.invoice.lines[0].sku, "CUSTOM-TEXT-LINE");
+  } finally {
+    if (prevKey !== undefined) {
+      process.env.GROQ_API_KEY = prevKey;
+    }
+  }
 });
 
 test("POST /api/transcribe returns HTTP 503 JSON when GROQ_API_KEY is unset", async () => {
