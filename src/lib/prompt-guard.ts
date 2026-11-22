@@ -13,25 +13,41 @@ const GUARD_RULES: readonly GuardRule[] = [
     ruleId: "PG-A01-IGNORE-POLICY",
     family: "A_policy_override",
     severity: "critical",
-    pattern: /\b(?:ignore|disregard|override|bypass)\s+(?:all\s+)?(?:previous|prior|system|tax|gst|verification)\s+(?:rules?|instructions?|checks?|prompts?)/i,
+    pattern:
+      /\b(?:ignore|disregard|override|bypass|forget)\s+(?:all\s+|the\s+)?(?:(?:above|previous|prior|printed|listed|system|tax|gst|verification)\s+(?:rules?|instructions?|checks?|prompts?|amounts?|totals?|values?|numbers?|prices?|gstin|items?|lines?)|everything\s+(?:after|below|above|before)\s+(?:this\s+)?line)/i,
   },
   {
     ruleId: "PG-A02-FORCE-APPROVE",
     family: "A_policy_override",
     severity: "critical",
-    pattern: /\b(?:auto[-\s]*approve|mark\s+(?:as\s+)?(?:verified|clean|paid)|set\s+(?:gst|tax|rate)\s*(?:to|=)\s*0|skip\s+human\s+review)\b/i,
+    pattern:
+      /\b(?:auto[-\s]*approve|mark\s+(?:as\s+)?(?:verified|clean|paid)|this\s+invoice\s+is\s+pre[-\s]*verified|output\s+needs_review\s*:\s*false|treat\s+this\s+as\s+an\s+inter[-\s]*state\s+supply|skip\s+human\s+review)\b/i,
+  },
+  {
+    ruleId: "PG-A03-FIELD-TAMPER",
+    family: "A_policy_override",
+    severity: "critical",
+    pattern:
+      /\b(?:set|change|replace|overwrite|swap|force)\s+(?:all\s+|every\s+|the\s+)?(?:(?:supplier|vendor|buyer)\s+)?(?:grand[_\s]*total|invoice[_\s]*total|net[_\s]*payable|total[_\s]*amount|total|gstin|gst|cgst(?:\s*,\s*sgst(?:\s+and\s+igst)?)?|sgst|igst|tax|rate)\s*(?:to|=|with|as|is)\b/i,
   },
   {
     ruleId: "PG-B01-TAG-BREAKOUT",
     family: "B_boundary_escape",
     severity: "critical",
-    pattern: /<\/?(?:system|assistant|developer|tool_call|invoice|instruction|prompt)\b[^>]*>|"""|```json\s*\{\s*"override"/i,
+    pattern: /<\/?(?:system|assistant|developer|tool_call|invoice|instruction|prompt)\b[^>]*>|"""|```json\s*\{\s*"override"|"}\s*]\s*,\s*"(?:totals|line_items|supplier|buyer)"\s*:\s*\{|\}\s*\}\s*END\b/i,
   },
   {
     ruleId: "PG-B02-JSON-ROLE-INJECT",
     family: "B_boundary_escape",
     severity: "high",
     pattern: /"(?:role|tool|action|approved)"\s*:\s*"(?:system|developer|approve_all|bypass)"/i,
+  },
+  {
+    ruleId: "PG-B03-ROLE-PREFIX-BREAKOUT",
+    family: "B_boundary_escape",
+    severity: "critical",
+    pattern:
+      /(?:^|[\s"'‘’(\[])(?:(?:SYSTEM|ASSISTANT|DEVELOPER|MODEL|LLM)(?:\s+OVER[A-Z]{2,8})?|Assistant|Instruction|Note\s+to\s+A[Ilv]\s+assistant|A[Ilv]\s+extraction\s+note|(?:\S+\s+)?assistant(?=\s*:\s*(?:the|set|ignore|change|override|output|treat|this|ne)))\s*:\s*\S/,
   },
   {
     ruleId: "PG-D01-BIDI-CONTROL",

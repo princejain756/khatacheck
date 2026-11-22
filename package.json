@@ -10,6 +10,8 @@
     "lint": "eslint src scripts",
     "typecheck": "tsc --noEmit",
     "benchmark": "npx tsx scripts/run_benchmarks.mjs generate && npx tsx scripts/run_benchmarks.mjs run",
+    "benchmark:e2e": "node scripts/run_e2e_ocr_asr_benchmark.mjs",
+    "benchmark:external": "node scripts/run_external_hf_benchmark.mjs",
     "test": "npx tsx --test tests/*.test.ts"
   },
   "dependencies": {
