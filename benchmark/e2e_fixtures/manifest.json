@@ -1,0 +1,357 @@
+{
+  "images": [
+    {
+      "caseId": "E2E-IMG-01",
+      "filename": "e2e_01_kirana_clean.png",
+      "merchandiseGroup": "kirana",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29SURYA6640D1ZL",
+      "expectedInvoiceNumber": "SAD/26-27/1041",
+      "expectedLineCount": 4,
+      "expectedGrandTotalPaise": "3756900",
+      "expectedFaultCategories": [],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_01_kirana_clean.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_01_kirana_clean.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_01_kirana_clean.png"
+    },
+    {
+      "caseId": "E2E-IMG-02",
+      "filename": "e2e_02_kirana_hsn.png",
+      "merchandiseGroup": "kirana",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29ANNAP2218B1ZX",
+      "expectedInvoiceNumber": "AST/26-27/2089",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "502600",
+      "expectedFaultCategories": [
+        "hsn_mismatch"
+      ],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_02_kirana_hsn.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_02_kirana_hsn.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_02_kirana_hsn.png"
+    },
+    {
+      "caseId": "E2E-IMG-03",
+      "filename": "e2e_03_kirana_igst.png",
+      "merchandiseGroup": "kirana",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "27DECCB7712K1ZA",
+      "expectedInvoiceNumber": "DBW/26-27/0512",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "1113000",
+      "expectedFaultCategories": [],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_03_kirana_igst.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_03_kirana_igst.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_03_kirana_igst.png"
+    },
+    {
+      "caseId": "E2E-IMG-04",
+      "filename": "e2e_04_kirana_bad_gstin.png",
+      "merchandiseGroup": "kirana",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29SHREE3391P1ZA",
+      "expectedInvoiceNumber": "SGPD/26-27/0917",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "703500",
+      "expectedFaultCategories": [
+        "invalid_gstin"
+      ],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_04_kirana_bad_gstin.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_04_kirana_bad_gstin.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_04_kirana_bad_gstin.png"
+    },
+    {
+      "caseId": "E2E-IMG-05",
+      "filename": "e2e_05_kirana_arith.png",
+      "merchandiseGroup": "kirana",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29NANDI5104L1ZS",
+      "expectedInvoiceNumber": "NGS/26-27/3320",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "755500",
+      "expectedFaultCategories": [
+        "arithmetic_mismatch"
+      ],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_05_kirana_arith.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_05_kirana_arith.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_05_kirana_arith.png"
+    },
+    {
+      "caseId": "E2E-IMG-06",
+      "filename": "e2e_06_pharma_clean.png",
+      "merchandiseGroup": "pharmacy",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29KAVPH3104B1ZO",
+      "expectedInvoiceNumber": "KPD/26-27/4418",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "1344000",
+      "expectedFaultCategories": [],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_06_pharma_clean.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_06_pharma_clean.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_06_pharma_clean.png"
+    },
+    {
+      "caseId": "E2E-IMG-07",
+      "filename": "e2e_07_pharma_hsn.png",
+      "merchandiseGroup": "pharmacy",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29MEDLF8820C1ZN",
+      "expectedInvoiceNumber": "MLH/26-27/5502",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "964000",
+      "expectedFaultCategories": [
+        "hsn_mismatch"
+      ],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_07_pharma_hsn.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_07_pharma_hsn.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_07_pharma_hsn.png"
+    },
+    {
+      "caseId": "E2E-IMG-08",
+      "filename": "e2e_08_pharma_clean.png",
+      "merchandiseGroup": "pharmacy",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29SAHYA1492F1ZW",
+      "expectedInvoiceNumber": "SMT/26-27/6104",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "1402100",
+      "expectedFaultCategories": [],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_08_pharma_clean.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_08_pharma_clean.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_08_pharma_clean.png"
+    },
+    {
+      "caseId": "E2E-IMG-09",
+      "filename": "e2e_09_pharma_arith.png",
+      "merchandiseGroup": "pharmacy",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29VANGU9031G1Z3",
+      "expectedInvoiceNumber": "VCS/26-27/7823",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "904800",
+      "expectedFaultCategories": [
+        "arithmetic_mismatch"
+      ],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_09_pharma_arith.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_09_pharma_arith.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_09_pharma_arith.png"
+    },
+    {
+      "caseId": "E2E-IMG-10",
+      "filename": "e2e_10_textile_clean.png",
+      "merchandiseGroup": "textile",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29KPTLM7821K1ZZ",
+      "expectedInvoiceNumber": "KPM/26-27/1190",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "1900500",
+      "expectedFaultCategories": [],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_10_textile_clean.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_10_textile_clean.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_10_textile_clean.png"
+    },
+    {
+      "caseId": "E2E-IMG-11",
+      "filename": "e2e_11_textile_hsn.png",
+      "merchandiseGroup": "textile",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29LAKGW6042M1Z4",
+      "expectedInvoiceNumber": "LGW/26-27/2209",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "2043300",
+      "expectedFaultCategories": [
+        "hsn_mismatch"
+      ],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_11_textile_hsn.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_11_textile_hsn.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_11_textile_hsn.png"
+    },
+    {
+      "caseId": "E2E-IMG-12",
+      "filename": "e2e_12_textile_igst.png",
+      "merchandiseGroup": "textile",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "24SURAT4190H1ZG",
+      "expectedInvoiceNumber": "SSL/26-27/8841",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "2018100",
+      "expectedFaultCategories": [],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_12_textile_igst.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_12_textile_igst.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_12_textile_igst.png"
+    },
+    {
+      "caseId": "E2E-IMG-13",
+      "filename": "e2e_13_fmcg_clean.png",
+      "merchandiseGroup": "fmcg",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29METRO1175R1ZX",
+      "expectedInvoiceNumber": "MCA/26-27/3910",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "995640",
+      "expectedFaultCategories": [],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_13_fmcg_clean.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_13_fmcg_clean.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_13_fmcg_clean.png"
+    },
+    {
+      "caseId": "E2E-IMG-14",
+      "filename": "e2e_14_fmcg_arith.png",
+      "merchandiseGroup": "fmcg",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29KAVFM7530T1ZP",
+      "expectedInvoiceNumber": "KFE/26-27/4105",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "1349200",
+      "expectedFaultCategories": [
+        "arithmetic_mismatch"
+      ],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_14_fmcg_arith.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_14_fmcg_arith.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_14_fmcg_arith.png"
+    },
+    {
+      "caseId": "E2E-IMG-15",
+      "filename": "e2e_15_fmcg_hsn.png",
+      "merchandiseGroup": "fmcg",
+      "kind": "crisp_generated",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "29SCPRV2846N1ZW",
+      "expectedInvoiceNumber": "SCP/26-27/5029",
+      "expectedLineCount": 3,
+      "expectedGrandTotalPaise": "845600",
+      "expectedFaultCategories": [
+        "hsn_mismatch"
+      ],
+      "htmlPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/html/e2e_15_fmcg_hsn.html",
+      "pdfPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/pdf/e2e_15_fmcg_hsn.pdf",
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/invoices/e2e_15_fmcg_hsn.png"
+    },
+    {
+      "caseId": "E2E-IMG-16-REAL-PHOTO",
+      "filename": "sample-kirana-bill.jpg",
+      "merchandiseGroup": "kirana",
+      "kind": "real_photo",
+      "expectedClarityPass": true,
+      "expectedVendorGstin": "27ABRFS9223K1ZP",
+      "expectedInvoiceNumber": "SLGW/24-25/0736",
+      "expectedLineCount": 10,
+      "expectedGrandTotalPaise": "3005700",
+      "expectedFaultCategories": [
+        "hsn_mismatch"
+      ],
+      "imagePath": "/Users/admin/Github/khatacheck/public/images/sample-kirana-bill.jpg"
+    },
+    {
+      "caseId": "E2E-BLUR-01",
+      "filename": "e2e_blur_01.png",
+      "merchandiseGroup": "blurry_control",
+      "kind": "blurry_abstain",
+      "expectedClarityPass": false,
+      "expectedVendorGstin": "",
+      "expectedInvoiceNumber": "",
+      "expectedLineCount": 0,
+      "expectedGrandTotalPaise": "0",
+      "expectedFaultCategories": [
+        "clarity_abstain"
+      ],
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/blurred/e2e_blur_01.png"
+    },
+    {
+      "caseId": "E2E-BLUR-02",
+      "filename": "e2e_blur_02.png",
+      "merchandiseGroup": "blurry_control",
+      "kind": "blurry_abstain",
+      "expectedClarityPass": false,
+      "expectedVendorGstin": "",
+      "expectedInvoiceNumber": "",
+      "expectedLineCount": 0,
+      "expectedGrandTotalPaise": "0",
+      "expectedFaultCategories": [
+        "clarity_abstain"
+      ],
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/blurred/e2e_blur_02.png"
+    },
+    {
+      "caseId": "E2E-BLUR-03",
+      "filename": "e2e_blur_03.png",
+      "merchandiseGroup": "blurry_control",
+      "kind": "blurry_abstain",
+      "expectedClarityPass": false,
+      "expectedVendorGstin": "",
+      "expectedInvoiceNumber": "",
+      "expectedLineCount": 0,
+      "expectedGrandTotalPaise": "0",
+      "expectedFaultCategories": [
+        "clarity_abstain"
+      ],
+      "imagePath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/blurred/e2e_blur_03.png"
+    }
+  ],
+  "audio": [
+    {
+      "caseId": "E2E-ASR-01",
+      "filename": "audio_01_kirana_shortage.mp3",
+      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_01_kirana_shortage.mp3",
+      "scenarioId": "SCN-01-KIRANA-SHORT",
+      "expectedShortageKind": "shortage",
+      "expectedSku": "DAL-TOOR-KG",
+      "expectedQty": 5,
+      "expectedRedactionCount": 0
+    },
+    {
+      "caseId": "E2E-ASR-02",
+      "filename": "audio_02_pharma_shortage.mp3",
+      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_02_pharma_shortage.mp3",
+      "scenarioId": "SCN-02-PHARMACY-HSN",
+      "expectedShortageKind": "shortage",
+      "expectedSku": "MED-AMOX-STRIP",
+      "expectedQty": 8,
+      "expectedRedactionCount": 0
+    },
+    {
+      "caseId": "E2E-ASR-03",
+      "filename": "audio_03_textile_rate_jump.mp3",
+      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_03_textile_rate_jump.mp3",
+      "scenarioId": "SCN-03-TEXTILE-DRIFT",
+      "expectedShortageKind": "rate_jump",
+      "expectedSku": "FAB-CAMB-44",
+      "expectedQty": 0,
+      "expectedRedactionCount": 0
+    },
+    {
+      "caseId": "E2E-ASR-04",
+      "filename": "audio_04_chilli_shortage_pii.mp3",
+      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_04_chilli_shortage_pii.mp3",
+      "scenarioId": "SCN-01-KIRANA-SHORT",
+      "expectedShortageKind": "shortage",
+      "expectedSku": "SPICE-CHILLI-500G",
+      "expectedQty": 2,
+      "expectedRedactionCount": 1
+    },
+    {
+      "caseId": "E2E-ASR-05",
+      "filename": "audio_05_clean_negation.mp3",
+      "audioPath": "/Users/admin/Github/khatacheck/benchmark/e2e_fixtures/audio/audio_05_clean_negation.mp3",
+      "scenarioId": "SCN-01-KIRANA-SHORT",
+      "expectedShortageKind": "none",
+      "expectedSku": null,
+      "expectedQty": 0,
+      "expectedRedactionCount": 0
+    }
+  ]
+}

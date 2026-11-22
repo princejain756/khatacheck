@@ -20,6 +20,31 @@ interface Props {
 const DEFAULT_SCRUB_SAMPLE =
   "Supplier GSTIN 29AABCS1429B1Z5 delivered 20 bags. Walk-in customer Ramesh (+91 9845012345, ramesh.sharma@gmail.com) paid via ramesh99@okicici. Reference PAN ABCDE1234F kept accidentally on slip.";
 
+const LIVE_PRIVACY_NOTICE = {
+  en: {
+    title: "Data Processing & Privacy Notice (DPDP Act 2023)",
+    purpose:
+      "KhataCheck processes uploaded GST bills via local on-server Tesseract OCR and explicitly recorded or uploaded receiving voice notes via Groq Whisper ASR (whisper-large-v3-turbo) solely to flag billing discrepancies, tax-slab mismatches, and rate creep.",
+    minimization:
+      "Mandatory on-server DPDP regex scrubbing masks walk-in customer mobile numbers, personal emails, PAN, Aadhaar-like numbers, and UPI handles in OCR and ASR text prior to any optional scrubbed-text structuring call, while preserving 15-character GSTIN tokens.",
+    retention:
+      "30-day raw-media retention plan: Stage 4 web demo processes image and audio uploads in memory without disk persistence; the automated 30-day expiry worker is scheduled for the Days 61 to 90 controlled rollout. Free-text overrideReason entries are trimmed and stored unmasked in the audit ledger.",
+    rights:
+      "Export or clear the shared demo review ledger via /privacy (empty demo ledger reseeds 4 default records on next read).",
+  },
+  hi: {
+    title: "डेटा प्रोसेसिंग और गोपनीयता सूचना (DPDP अधिनियम 2023)",
+    purpose:
+      "KhataCheck अपलोड किए गए GST बिल (लोकल ऑन-सर्वर Tesseract OCR) और स्पष्ट रूप से रिकॉर्ड या अपलोड किए गए वॉइस नोट्स (Groq Whisper ASR) की जांच केवल कम सामान, गलत टैक्स स्लैब और रेट अंतर पकड़ने के लिए करता है।",
+    minimization:
+      "किसी भी वैकल्पिक स्क्रब्ड-टेक्स्ट स्ट्रक्चरिंग कॉल से पहले सर्वर पर ही DPDP रेगेक्स स्क्रबिंग ग्राहक के मोबाइल नंबर, ईमेल, PAN, आधार-जैसी संख्याएं और UPI आईडी मास्क करती है, जबकि 15-अंकीय GSTIN पैटर्न सुरक्षित रहते हैं।",
+    retention:
+      "30-दिन की कच्ची मीडिया नीति: Stage 4 वेब डेमो इमेज और ऑडियो अपलोड मेमोरी में प्रोसेस करता है; स्वतः 30-दिन एक्सपायरी वर्कर Days 61 से 90 नियंत्रित रोलआउट के लिए तय है। फ्री-टेक्स्ट overrideReason ट्रिम होकर बिना मास्क के ऑडिट लेजर में सेव होता है।",
+    rights:
+      "आप कभी भी /privacy से साझा डेमो रिव्यू लेजर एक्सपोर्ट या क्लियर कर सकते हैं (खाली होने पर अगली रीड पर 4 डिफॉल्ट रिकॉर्ड रीसीड होते हैं)।",
+  },
+} as const;
+
 export function PrivacyClient({ initialEventCount }: Props) {
   const [lang, setLang] = useState<"en" | "hi">("en");
   const [sampleText, setSampleText] = useState(DEFAULT_SCRUB_SAMPLE);
@@ -33,7 +58,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const activeNotice = lang === "en" ? DPDP_CONSENT_NOTICE.en : DPDP_CONSENT_NOTICE.hi;
+  const activeNotice = lang === "en" ? LIVE_PRIVACY_NOTICE.en : LIVE_PRIVACY_NOTICE.hi;
 
   const runScrubber = async (inputText: string) => {
     setBusy(true);
@@ -94,21 +119,23 @@ export function PrivacyClient({ initialEventCount }: Props) {
 
   const retentionSchedule = [
     {
-      artifact: "Supplier Bill Camera Photos",
-      egress: "Planned edge mask before OCR (no external model calls in demo)",
-      ttl: "30-day policy (in-memory demo)",
+      artifact: "Supplier Bill Photos (PNG/JPG/WebP)",
+      egress:
+        "Local on-server Tesseract OCR + DPDP text scrub prior to optional scrubbed-text structuring (qwen/qwen3.8-27b fallback only)",
+      ttl: "Days 61 to 90 30-day expiry plan (in-memory only now)",
       retained: "SHA-256 + tax math hash",
     },
     {
-      artifact: "Hinglish / English Transcript Notes",
-      egress: "Optional server scrub (local parser; no external ASR)",
-      ttl: "30-day policy (in-memory demo)",
+      artifact: "Explicitly Recorded / Uploaded Voice Notes",
+      egress:
+        "Groq Whisper ASR (whisper-large-v3-turbo) on user-submitted audio, followed by immediate on-server DPDP scrub",
+      ttl: "Days 61 to 90 30-day expiry plan (in-memory only now)",
       retained: "Dispute delta & approval",
     },
     {
       artifact: "Walk-in Phone, UPI, PAN, Aadhaar",
-      egress: "Optional server regex scrub (no external model calls in demo)",
-      ttl: "Masked in scrubbed text",
+      egress: "On-server regex scrub masks OCR and ASR text prior to any LLM call",
+      ttl: "Masked in scrubbed OCR & ASR text",
       retained: "Seeded rows PII-free; free-text overrideReason trimmed & stored unmasked",
     },
     {
@@ -125,8 +152,9 @@ export function PrivacyClient({ initialEventCount }: Props) {
         <div>
           <h1 className="type-page text-ink">DPDP Act 2023 Privacy, Masking & Data Erasure</h1>
           <p className="type-body text-muted mt-0.5">
-            Optional server text scrubbing, bilingual notice ({DPDP_CONSENT_NOTICE.version}),
-            30-day expiry plan (in-memory demo), and demo ledger export/clear.
+            Local Tesseract OCR + on-server DPDP text scrub before optional scrubbed-text structuring,
+            Groq Whisper ASR on explicit voice clips, bilingual notice ({DPDP_CONSENT_NOTICE.version}),
+            and Days 61 to 90 30-day expiry plan.
           </p>
         </div>
         <a
@@ -151,7 +179,7 @@ export function PrivacyClient({ initialEventCount }: Props) {
           <div className="type-kpi-value numeral text-ink mt-1">
             {DPDP_CONSENT_NOTICE.retentionDays} Days
           </div>
-          <div className="type-meta text-muted mt-1">30-day pilot plan (in-memory demo)</div>
+          <div className="type-meta text-muted mt-1">Days 61 to 90 rollout (in-memory demo)</div>
         </div>
 
         <div className="app-card p-4">

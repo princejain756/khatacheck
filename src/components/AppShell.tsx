@@ -32,7 +32,7 @@ const NAV_ITEMS = [
   {
     href: "/benchmarks",
     label: "Benchmarks & Speed",
-    sub: "500 Bills + Red-Team",
+    sub: "500 Synthetic + Live E2E",
     icon: BarChart3,
   },
   {
@@ -105,9 +105,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="mt-5 p-3 rounded-lg bg-subtle border border-line">
-            <div className="type-kpi-label text-ink">Synthetic Demo Mode</div>
+            <div className="type-kpi-label text-ink">Hybrid Governance Mode</div>
             <p className="type-meta text-muted mt-1 leading-relaxed">
-              Isolated integer-paise GST checks on seeded bills, text uploads, and typed transcripts.
+              Local Tesseract OCR, on-server DPDP text scrubbing before optional scrubbed-text structuring, Groq Whisper ASR on explicit voice clips, and BigInt GST math.
             </p>
             <div className="mt-2 flex flex-wrap gap-1">
               <span className="type-pill px-2 py-0.5 rounded pill-cobalt">ISO/IEC 42001</span>

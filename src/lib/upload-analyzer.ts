@@ -1,5 +1,11 @@
 import { computeGstinCheckChar } from "./gst-rules";
 import { halfUpDiv, parseINRToPaise } from "./money";
+import {
+  type OcrMeta,
+  extractAndParseInvoiceImage,
+  isImageUpload,
+  parseOcrInvoiceText,
+} from "./ocr-extractor";
 import type { InvoiceInput, InvoiceLineInput } from "./types";
 
 /**
@@ -148,6 +154,52 @@ export function parseCustomInvoiceText(
   }
 
   if (lines.length === 0) {
+    // Try multi-column Indian GST parser before manual fallback
+    const gstParsed = parseOcrInvoiceText(trimmed, {
+      voiceTranscript: options?.voiceTranscript,
+      clarityScore: options?.clarityScore,
+    });
+    if (gstParsed.lines.length > 0) {
+      const sumTaxable = gstParsed.lines.reduce(
+        (acc, l) => acc + BigInt(l.declaredTaxablePaise || "0"),
+        0n
+      );
+      const sumTax = gstParsed.lines.reduce(
+        (acc, l) =>
+          acc +
+          BigInt(l.declaredCgstPaise || "0") +
+          BigInt(l.declaredSgstPaise || "0") +
+          BigInt(l.declaredIgstPaise || "0"),
+        0n
+      );
+      const taxableSubtotal = gstParsed.declaredTaxableSubtotalPaise ?? sumTaxable;
+      const totalTaxVal = gstParsed.declaredTotalTaxPaise ?? sumTax;
+      const grandTotalVal = gstParsed.declaredGrandTotalPaise ?? taxableSubtotal + totalTaxVal;
+
+      return {
+        id: `UPL-${Date.now()}`,
+        tenantId: "store-ganesh-blr-01",
+        vendorName: gstParsed.vendorName,
+        vendorGstin: gstParsed.vendorGstin || options?.fallbackVendorGstin || defaultGstin,
+        buyerName: gstParsed.buyerName,
+        buyerGstin: gstParsed.buyerGstin || defaultGstin,
+        supplierStateCode: gstParsed.supplierStateCode,
+        placeOfSupplyStateCode: gstParsed.placeOfSupplyStateCode,
+        invoiceNumber: gstParsed.invoiceNumber,
+        invoiceDate: gstParsed.invoiceDate,
+        receivedAtIso: new Date().toISOString(),
+        roundOffPaise: gstParsed.roundOffPaise.toString(),
+        declaredTaxableSubtotalPaise: taxableSubtotal.toString(),
+        declaredTotalTaxPaise: totalTaxVal.toString(),
+        declaredGrandTotalPaise: grandTotalVal.toString(),
+        clarityScore: options?.clarityScore ?? 215,
+        subgroup: "printed_en",
+        voiceTranscriptRaw: options?.voiceTranscript,
+        notesRaw: trimmed,
+        lines: gstParsed.lines,
+      };
+    }
+
     // Fallback single structured manual line so arbitrary uploaded text is still inspected for DPDP + prompt guard
     lines.push({
       lineNumber: 1,
@@ -193,5 +245,34 @@ export function parseCustomInvoiceText(
     voiceTranscriptRaw: options?.voiceTranscript,
     notesRaw: trimmed,
     lines,
+  };
+}
+
+export async function analyzeUploadedBuffer(
+  buf: Buffer,
+  filename: string,
+  options?: {
+    mimeType?: string;
+    voiceTranscript?: string;
+  }
+): Promise<{
+  extractKind: string;
+  invoice: InvoiceInput;
+  ocrMeta?: OcrMeta;
+}> {
+  if (isImageUpload(filename, options?.mimeType)) {
+    return extractAndParseInvoiceImage(buf, filename, {
+      voiceTranscript: options?.voiceTranscript,
+    });
+  }
+
+  const ex = extractTextFromBuffer(buf, filename);
+  const invoice = parseCustomInvoiceText(ex.extractedText || filename, {
+    voiceTranscript: options?.voiceTranscript,
+    clarityScore: ex.clarityHint,
+  });
+  return {
+    extractKind: ex.kind,
+    invoice,
   };
 }

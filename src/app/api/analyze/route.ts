@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DEMO_PRIOR_BILLS, DEMO_SCENARIOS, DEMO_VENDOR_HISTORY } from "@/lib/bill-scenarios";
 import { verifyInvoicePipeline } from "@/lib/engine";
+import type { OcrMeta } from "@/lib/ocr-extractor";
 import type { InvoiceInput } from "@/lib/types";
-import { extractTextFromBuffer, parseCustomInvoiceText } from "@/lib/upload-analyzer";
+import { analyzeUploadedBuffer, parseCustomInvoiceText } from "@/lib/upload-analyzer";
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,6 +11,7 @@ export async function POST(req: NextRequest) {
     let invoice: InvoiceInput | null = null;
     let enablePiiScrub = true;
     let extractKind = "structured_scenario";
+    let ocrMeta: OcrMeta | undefined;
 
     if (contentType.includes("multipart/form-data")) {
       const form = await req.formData();
@@ -18,24 +20,20 @@ export async function POST(req: NextRequest) {
       enablePiiScrub = String(form.get("enablePiiScrub") ?? "true") !== "false";
 
       if (file && file instanceof File) {
+        if (file.size === 0) {
+          return NextResponse.json({ error: "Uploaded file is empty" }, { status: 400 });
+        }
         if (file.size > 10 * 1024 * 1024) {
           return NextResponse.json({ error: "File exceeds 10 MiB stage-4 demo limit" }, { status: 400 });
         }
         const buf = Buffer.from(await file.arrayBuffer());
-        const ex = extractTextFromBuffer(buf, file.name);
-        extractKind = ex.kind;
-        if (ex.kind === "image_requires_review") {
-          invoice = parseCustomInvoiceText(
-            `Image Upload (${file.name}, ${file.size} bytes)`,
-            { voiceTranscript, clarityScore: ex.clarityHint }
-          );
-          invoice.vendorName = `Scanned Upload (${file.name})`;
-        } else {
-          invoice = parseCustomInvoiceText(ex.extractedText || file.name, {
-            voiceTranscript,
-            clarityScore: ex.clarityHint,
-          });
-        }
+        const analyzed = await analyzeUploadedBuffer(buf, file.name, {
+          mimeType: file.type,
+          voiceTranscript,
+        });
+        extractKind = analyzed.extractKind;
+        invoice = analyzed.invoice;
+        ocrMeta = analyzed.ocrMeta;
       }
     } else {
       const body = (await req.json()) as {
@@ -82,7 +80,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(
-      { extractKind, invoice, verification },
+      { extractKind, invoice, verification, ...(ocrMeta ? { ocrMeta } : {}) },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (err) {

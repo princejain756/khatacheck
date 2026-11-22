@@ -325,3 +325,123 @@ export interface BenchmarkReport {
     allGatesPassed: boolean;
   };
 }
+
+export type OcrClarityMethod = "python_pil_laplacian_3x3" | "byte_entropy_fallback";
+
+export interface OcrMeta {
+  engine: "tesseract_cli" | "tesseract_js" | "clarity_abstained";
+  clarityMethod: OcrClarityMethod;
+  clarityScore: number;
+  ocrLatencyMs: number;
+  scrubbedOcrPreview: string;
+  usedLlmStructurer: boolean;
+}
+
+export interface TranscribeResult {
+  transcript: string;
+  scrubbedTranscript: string;
+  redactionCount: number;
+  redactedKinds: string[];
+  durationSec: number | null;
+  asrLatencyMs: number;
+  model: string;
+}
+
+export interface E2eImageCaseResult {
+  caseId: string;
+  filename: string;
+  merchandiseGroup: MerchandiseGroup | "blurry_control";
+  kind: "crisp_generated" | "real_photo" | "blurry_abstain";
+  expectedClarityPass: boolean;
+  expectedFaultCategories: FaultCategory[];
+  httpStatus: number;
+  extractKind: string;
+  clarityScore: number;
+  clarityMethod: string;
+  ocrEngine: string;
+  usedLlmStructurer: boolean;
+  ocrLatencyMs: number;
+  wallClockMs: number;
+  expectedLineCount: number;
+  extractedLineCount: number;
+  vendorGstinExtracted: string;
+  vendorGstinMatched: boolean;
+  expectedGrandTotalPaise: string;
+  extractedGrandTotalPaise: string;
+  grandTotalMatched: boolean;
+  detectedCategories: FaultCategory[];
+  faultDetectionPassed: boolean;
+  abstainedClarity: boolean;
+  abstentionPassed: boolean;
+}
+
+export interface E2eAudioCaseResult {
+  caseId: string;
+  filename: string;
+  scenarioId: string;
+  durationSec: number | null;
+  asrHttpStatus: number;
+  analyzeHttpStatus: number;
+  asrModel: string;
+  asrLatencyMs: number;
+  analyzeWallClockMs: number;
+  totalWallClockMs: number;
+  transcript: string;
+  scrubbedTranscript: string;
+  redactionCount: number;
+  redactedKinds: string[];
+  expectedShortageKind: "shortage" | "rate_jump" | "none";
+  expectedSku: string | null;
+  expectedQty: number;
+  expectedRedactionCount: number;
+  detectedShortageKind: string;
+  detectedSku: string | null;
+  detectedQty: number;
+  detectedVariancePaise: string;
+  matchedExpectation: boolean;
+}
+
+export interface E2eOcrAsrReport {
+  runId: string;
+  executedAtIso: string;
+  targetBaseUrl: string;
+  imageSummary: {
+    totalCases: number;
+    crispGeneratedCases: number;
+    realPhotoCases: number;
+    blurryCases: number;
+    clarityPassRatePct: number;
+    blurryAbstentionCorrect: number;
+    blurryAbstentionTotal: number;
+    blurryAbstentionRatePct: number;
+    gstinMatchRatePct: number;
+    lineExtractionRecallPct: number;
+    grandTotalExactMatchPct: number;
+    faultAccuracyPct: number;
+    wallClockP50Ms: number;
+    wallClockP95Ms: number;
+    wallClockMaxMs: number;
+    ocrLatencyP50Ms: number;
+    ocrLatencyP95Ms: number;
+    ocrLatencyMaxMs: number;
+    enginesObserved: string[];
+  };
+  audioSummary: {
+    totalClips: number;
+    asrModel: string;
+    shortageAndRateMatchCount: number;
+    shortageAndRateTotal: number;
+    shortageRecallPct: number;
+    negationControlPassed: boolean;
+    piiRedactionPassed: boolean;
+    asrLatencyP50Ms: number;
+    asrLatencyP95Ms: number;
+    asrLatencyMaxMs: number;
+    totalE2eP50Ms: number;
+    totalE2eP95Ms: number;
+    totalE2eMaxMs: number;
+  };
+  pilotStatus: string;
+  imageResults: E2eImageCaseResult[];
+  audioResults: E2eAudioCaseResult[];
+}

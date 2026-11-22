@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import test from "node:test";
+import { NextRequest } from "next/server";
+import { POST as transcribePost } from "../src/app/api/transcribe/route";
 import { scrubPiiForModelEgress } from "../src/lib/dpdp-privacy";
 import { verifyInvoicePipeline } from "../src/lib/engine";
 import { DEMO_PRIOR_BILLS, DEMO_SCENARIOS, DEMO_VENDOR_HISTORY } from "../src/lib/bill-scenarios";
@@ -7,9 +10,15 @@ import {
   HSN_SCHEDULE_60,
   computeGstinCheckChar,
   lookupHsnRule,
+  makeValidGstin,
   validateGstin,
 } from "../src/lib/gst-rules";
+import { scoreImageClarity } from "../src/lib/image-clarity";
 import { formatPaiseINR, halfUpDiv, parseINRToPaise } from "../src/lib/money";
+import {
+  extractAndParseInvoiceImage,
+  parseOcrInvoiceText,
+} from "../src/lib/ocr-extractor";
 import {
   GENESIS_HASH,
   buildTallyPurchaseXml,
@@ -19,7 +28,7 @@ import {
 } from "../src/lib/governance-ledger";
 import { scanUntrustedInvoiceText } from "../src/lib/prompt-guard";
 import { parseVoiceRemarks } from "../src/lib/voice-parser";
-import type { AuditLedgerEvent } from "../src/lib/types";
+import type { AuditLedgerEvent, InvoiceInput } from "../src/lib/types";
 
 test("GSTIN Mod-36 checksum validates official synthetic vectors and rejects tampered digits", () => {
   assert.equal(computeGstinCheckChar("29AAAAA0000A1Z"), "Y");
@@ -202,4 +211,250 @@ test("Ledger hash chain ignores undefined optional keys and verifies a 5th appen
   const verified = verifyHashChain([...base4, parsedFifth]);
   assert.equal(verified.valid, true);
   assert.equal(verified.totalEntries, 5);
+});
+
+test("Laplacian clarity scoring distinguishes sharp invoice captures from Gaussian-blurred captures and abstains below 85", async () => {
+  const pyScript = [
+    "import base64, io, json, os",
+    "from PIL import Image, ImageDraw, ImageFilter, ImageFont",
+    "img = Image.new('RGB', (1000, 1200), 'white')",
+    "d = ImageDraw.Draw(img)",
+    "font_path = '/System/Library/Fonts/Helvetica.ttc'",
+    "font = ImageFont.truetype(font_path, 22) if os.path.exists(font_path) else ImageFont.load_default()",
+    "d.rectangle([50, 50, 950, 520], outline='black', width=3)",
+    "lines = ['TAX INVOICE', 'GSTIN: 29AABCK4120M1Z5', '1 | Toor Dal | 0713 | 50 | kg | 118.00 | 5% | 6195.00', '2 | Sugar M30 | 1701 | 20 | kg | 42.00 | 5% | 882.00']",
+    "for i, line in enumerate(lines):",
+    "    d.text((75, 80 + i * 65), line, font=font, fill='black')",
+    "b_sharp = io.BytesIO()",
+    "img.save(b_sharp, format='PNG')",
+    "b_blur = io.BytesIO()",
+    "img.filter(ImageFilter.GaussianBlur(radius=3.0)).save(b_blur, format='PNG')",
+    "print(json.dumps({'sharp': base64.b64encode(b_sharp.getvalue()).decode(), 'blur': base64.b64encode(b_blur.getvalue()).decode()}))",
+  ].join("\n");
+
+  const pyBin = process.env.KHATACHECK_PYTHON_BIN || "python3";
+  const raw = execFileSync(pyBin, ["-c", pyScript], { encoding: "utf8" });
+  const pair = JSON.parse(raw) as { sharp: string; blur: string };
+  const sharpBuf = Buffer.from(pair.sharp, "base64");
+  const blurBuf = Buffer.from(pair.blur, "base64");
+
+  const sharpClarity = await scoreImageClarity(sharpBuf);
+  assert.equal(sharpClarity.clarityMethod, "python_pil_laplacian_3x3");
+  assert.ok(sharpClarity.clarityScore >= 100, `Expected crisp score >= 100, got ${sharpClarity.clarityScore}`);
+  assert.ok((sharpClarity.laplacianVariance ?? 0) > 100);
+
+  const blurClarity = await scoreImageClarity(blurBuf);
+  assert.equal(blurClarity.clarityMethod, "python_pil_laplacian_3x3");
+  assert.ok(blurClarity.clarityScore < 85, `Expected blurred score < 85, got ${blurClarity.clarityScore}`);
+
+  const fallback = await scoreImageClarity(sharpBuf, { forceFallback: true });
+  assert.equal(fallback.clarityMethod, "byte_entropy_fallback");
+  assert.ok(fallback.clarityScore >= 0 && fallback.clarityScore <= 255);
+
+  const abstained = await extractAndParseInvoiceImage(blurBuf, "blurry-capture.png");
+  assert.equal(abstained.extractKind, "image_clarity_abstained");
+  assert.equal(abstained.ocrMeta.engine, "clarity_abstained");
+  assert.equal(abstained.ocrMeta.clarityScore, blurClarity.clarityScore);
+  const ver = verifyInvoicePipeline(abstained.invoice);
+  assert.equal(ver.abstainedClarity, true);
+  assert.equal(ver.recommendedAction, "retake_required");
+
+  const sharpOcr = await extractAndParseInvoiceImage(sharpBuf, "crisp-capture.png");
+  assert.equal(sharpOcr.extractKind, "image_ocr_tesseract");
+  assert.ok(sharpOcr.ocrMeta.clarityScore >= 100);
+  assert.ok(sharpOcr.invoice.lines.length >= 2);
+  assert.notEqual(sharpOcr.invoice.lines[0].sku, "CUSTOM-TEXT-LINE");
+});
+
+test("POST /api/transcribe returns HTTP 503 JSON when GROQ_API_KEY is unset", async () => {
+  const prevKey = process.env.GROQ_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  try {
+    const req = new NextRequest("http://localhost:4290/api/transcribe", { method: "POST" });
+    const resp = await transcribePost(req);
+    assert.equal(resp.status, 503);
+    const body = (await resp.json()) as { error?: string };
+    assert.ok(body.error && body.error.includes("GROQ_API_KEY"));
+  } finally {
+    if (prevKey !== undefined) {
+      process.env.GROQ_API_KEY = prevKey;
+    }
+  }
+});
+
+test("Deterministic OCR table parser extracts multi-line GST invoice text into exact BigInt paise without LLM calls", () => {
+  const vendorGstin = makeValidGstin("29", "KAVSP", "3104", "B");
+  const buyerGstin = makeValidGstin("29", "AROGM", "5501", "A");
+  const rawOcrText = [
+    "Kaveri Pharma & Kirana Distributors",
+    "Mob: +91 98927 45631 | Email: billing@kaveri.in",
+    `Supplier GSTIN: ${vendorGstin}`,
+    `Invoice No: MED/26-27/4418 | Invoice Date: 20-11-2026`,
+    "Buyer: Arogya Medical & General Store",
+    `GSTIN: ${buyerGstin}`,
+    "Sr. No | Description | HSN | Qty | Unit | Rate | GST % | Total",
+    "1 | Paracetamol 650mg Strip | 3004 | 50 | box | 120.00 | 12% | 6,720.00",
+    "2| Surgical Gloves Medium | 4015 1 20 | box | 250.00 | 12% | 5,600.00",
+    "31 Red Chilli Powder (500 g) | 0904 | 10 | pkt | 76.00 | 18% | 896.80",
+    "Grand Total: Rs. 13,216.80",
+  ].join("\n");
+
+  const scrubbed = scrubPiiForModelEgress(rawOcrText);
+  assert.ok(!scrubbed.scrubbedText.includes("98927"));
+  assert.ok(!scrubbed.scrubbedText.includes("billing@kaveri.in"));
+  assert.ok(scrubbed.scrubbedText.includes(vendorGstin));
+  assert.ok(scrubbed.scrubbedText.includes(buyerGstin));
+
+  const parsed = parseOcrInvoiceText(scrubbed.scrubbedText, { pageConfidence: 91 });
+  assert.equal(parsed.vendorGstin, vendorGstin);
+  assert.equal(parsed.buyerGstin, buyerGstin);
+  assert.equal(parsed.invoiceNumber, "MED/26-27/4418");
+  assert.equal(parsed.invoiceDate, "2026-11-20");
+  assert.equal(parsed.supplierStateCode, "29");
+  assert.equal(parsed.placeOfSupplyStateCode, "29");
+  assert.equal(parsed.declaredGrandTotalPaise, 1321680n);
+  assert.equal(parsed.lines.length, 3);
+
+  assert.equal(parsed.lines[0].hsnCode, "3004");
+  assert.equal(parsed.lines[0].qtyMilli, 50000);
+  assert.equal(parsed.lines[0].unitRatePaise, "12000");
+  assert.equal(parsed.lines[0].declaredLineTotalPaise, "672000");
+
+  assert.equal(parsed.lines[1].description, "Surgical Gloves Medium");
+  assert.equal(parsed.lines[1].hsnCode, "4015");
+  assert.equal(parsed.lines[1].qtyMilli, 20000);
+  assert.equal(parsed.lines[1].unitRatePaise, "25000");
+  assert.equal(parsed.lines[1].declaredLineTotalPaise, "560000");
+
+  assert.equal(parsed.lines[2].description, "Red Chilli Powder (500 g)");
+  assert.equal(parsed.lines[2].hsnCode, "0904");
+  assert.equal(parsed.lines[2].declaredCgstBps, 900);
+  assert.equal(parsed.lines[2].declaredSgstBps, 900);
+  assert.equal(parsed.lines[2].declaredLineTotalPaise, "89680");
+
+  const invoice: InvoiceInput = {
+    id: "TEST-OCR-DET-1",
+    tenantId: "store-ganesh-blr-01",
+    vendorName: parsed.vendorName,
+    vendorGstin: parsed.vendorGstin,
+    buyerName: parsed.buyerName,
+    buyerGstin: parsed.buyerGstin,
+    supplierStateCode: parsed.supplierStateCode,
+    placeOfSupplyStateCode: parsed.placeOfSupplyStateCode,
+    invoiceNumber: parsed.invoiceNumber,
+    invoiceDate: parsed.invoiceDate,
+    receivedAtIso: new Date().toISOString(),
+    roundOffPaise: parsed.roundOffPaise.toString(),
+    declaredTaxableSubtotalPaise: "1176000",
+    declaredTotalTaxPaise: "145680",
+    declaredGrandTotalPaise: (parsed.declaredGrandTotalPaise ?? 0n).toString(),
+    clarityScore: 165,
+    subgroup: "printed_en",
+    notesRaw: scrubbed.scrubbedText,
+    lines: parsed.lines,
+  };
+
+  const ver = verifyInvoicePipeline(invoice);
+  assert.equal(ver.gstinValid, true);
+  // Line 1 (6720.00) + Line 2 (5600.00) + Line 3 at statutory 5% HSN 0904 (798.00) = 13118.00
+  assert.equal(ver.expectedGrandTotalPaise, "1311800");
+  const slabFault = ver.faults.find((f) => f.category === "hsn_mismatch" && f.lineNumber === 3);
+  assert.ok(slabFault);
+  assert.equal(slabFault.variancePaise, "9880");
+});
+
+function validateTallyPurchaseXml(xml: string): {
+  ledgerCount: number;
+  balancePaise: bigint;
+  dateYyyymmdd: string;
+} {
+  assert.ok(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+  assert.ok(xml.includes("<TALLYREQUEST>Import</TALLYREQUEST>"));
+  assert.ok(xml.includes("<TYPE>Data</TYPE>"));
+  assert.ok(xml.includes("<ID>Vouchers</ID>"));
+  assert.ok(xml.includes('<TALLYMESSAGE xmlns:UDF="TallyUDF">'));
+  assert.ok(xml.includes('VCHTYPE="Purchase"'));
+  assert.ok(xml.includes('ACTION="Create"'));
+  assert.ok(xml.includes("<VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>"));
+
+  // Strip XML declaration and comments before validating balanced tag nesting
+  const body = xml.replace(/<\?xml[\s\S]*?\?>/, "").replace(/<!--[\s\S]*?-->/g, "");
+  const tagStack: string[] = [];
+  const tagRegex = /<\/?([A-Za-z0-9_.-]+)(?:\s+[^<>]*)?\/?>/g;
+  for (const m of body.matchAll(tagRegex)) {
+    const token = m[0];
+    const tagName = m[1];
+    if (token.endsWith("/>")) continue;
+    if (token.startsWith("</")) {
+      const top = tagStack.pop();
+      assert.equal(top, tagName, `Mismatched closing tag </${tagName}> vs <${top}>`);
+    } else {
+      tagStack.push(tagName);
+    }
+  }
+  assert.equal(tagStack.length, 0, `Unclosed XML tags remain: ${tagStack.join(",")}`);
+
+  // Verify no unescaped ampersands or bare angle brackets inside text nodes
+  const textOnly = body.replace(/<[^>]+>/g, " ");
+  const badAmp = textOnly.match(/&(?!amp;|lt;|gt;|quot;|apos;)/g);
+  assert.equal(badAmp, null, "Found unescaped ampersand inside XML text");
+  assert.equal(/[<>]/.test(textOnly), false, "Found unescaped angle bracket inside XML text");
+
+  const dateMatch = /<DATE>(\d{8})<\/DATE>/.exec(body);
+  assert.ok(dateMatch, "Missing YYYYMMDD <DATE> element");
+
+  const entryBlocks = [...body.matchAll(/<ALLLEDGERENTRIES\.LIST>([\s\S]*?)<\/ALLLEDGERENTRIES\.LIST>/g)];
+  assert.ok(entryBlocks.length >= 4, "Expected at least 4 Tally ledger entries");
+
+  let balancePaise = 0n;
+  for (const blk of entryBlocks) {
+    const inner = blk[1];
+    assert.ok(/<LEDGERNAME>[^<]+<\/LEDGERNAME>/.test(inner));
+    const deemed = /<ISDEEMEDPOSITIVE>(Yes|No)<\/ISDEEMEDPOSITIVE>/.exec(inner);
+    assert.ok(deemed, "Missing ISDEEMEDPOSITIVE Yes/No");
+    const amtMatch = /<AMOUNT>(-?\d+\.\d{2})<\/AMOUNT>/.exec(inner);
+    assert.ok(amtMatch, "Missing 2-decimal <AMOUNT>");
+    const amtPaise = parseINRToPaise(amtMatch[1]);
+    if (deemed[1] === "No") {
+      assert.ok(amtPaise >= 0n, "Credit party entry should be non-negative");
+    } else {
+      assert.ok(amtPaise <= 0n, "Debit purchase/tax entry should be non-positive");
+    }
+    balancePaise += amtPaise;
+  }
+
+  assert.equal(balancePaise, 0n, `Tally voucher ledger entries must balance to 0 paise, got ${balancePaise}`);
+  return {
+    ledgerCount: entryBlocks.length,
+    balancePaise,
+    dateYyyymmdd: dateMatch[1],
+  };
+}
+
+test("TallyPrime Purchase Voucher XML validator verifies shape, balanced BigInt debit/credit sum = 0, YYYYMMDD date, and XML escaping", () => {
+  for (const sc of DEMO_SCENARIOS) {
+    const xml = buildTallyPurchaseXml(sc.invoice);
+    const checked = validateTallyPurchaseXml(xml);
+    assert.equal(checked.balancePaise, 0n);
+    assert.equal(checked.dateYyyymmdd, sc.invoice.invoiceDate.replace(/-/g, ""));
+  }
+
+  const specialCharsInvoice: InvoiceInput = {
+    ...DEMO_SCENARIOS[0].invoice,
+    id: 'INV&ID<1>"2"\'3\'',
+    vendorName: 'Rao & Sons <Wholesale> "Main" \'BLR\'',
+    buyerName: 'Ganesh & Co <Kirana> "Store"',
+    invoiceNumber: 'INV/26&27/<01>',
+    invoiceDate: "2026-11-22",
+    declaredTaxableSubtotalPaise: "100000",
+    declaredTotalTaxPaise: "5001", // Odd paise check (2500 CGST + 2501 SGST)
+    declaredGrandTotalPaise: "105001",
+  };
+  const escapedXml = buildTallyPurchaseXml(specialCharsInvoice);
+  const checkedSpecial = validateTallyPurchaseXml(escapedXml);
+  assert.equal(checkedSpecial.balancePaise, 0n);
+  assert.equal(checkedSpecial.dateYyyymmdd, "20261122");
+  assert.ok(escapedXml.includes("Rao &amp; Sons &lt;Wholesale&gt; &quot;Main&quot; &apos;BLR&apos;"));
+  assert.ok(escapedXml.includes("Ganesh &amp; Co &lt;Kirana&gt; &quot;Store&quot;"));
+  assert.ok(escapedXml.includes('REMOTEID="INV&amp;ID&lt;1&gt;&quot;2&quot;&apos;3&apos;"'));
 });

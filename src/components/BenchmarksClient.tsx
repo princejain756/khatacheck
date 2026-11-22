@@ -7,27 +7,33 @@ import {
   Clock,
   Download,
   Lock,
+  Mic,
   Play,
+  ScanText,
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
 import {
   ATTACK_FAMILY_LABELS,
   FAULT_TYPE_LABELS,
+  MERCHANDISE_LABELS,
   SUBGROUP_LABELS,
   labelFor,
 } from "@/lib/display-labels";
-import type { BenchmarkReport } from "@/lib/types";
+import type { BenchmarkReport, E2eOcrAsrReport } from "@/lib/types";
 
 interface Props {
   initialReport: BenchmarkReport;
+  initialE2eReport: E2eOcrAsrReport | null;
 }
 
-export function BenchmarksClient({ initialReport }: Props) {
+export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
   const [report, setReport] = useState<BenchmarkReport>(initialReport);
+  const [e2eReport, setE2eReport] = useState<E2eOcrAsrReport | null>(initialE2eReport);
   const [running, setRunning] = useState(false);
   const [lastElapsedMs, setLastElapsedMs] = useState<number | null>(null);
   const [familyFilter, setFamilyFilter] = useState<string>("all");
+  const [e2eTab, setE2eTab] = useState<"images" | "audio">("images");
   const [runError, setRunError] = useState<string | null>(null);
 
   const rerunSuite = async () => {
@@ -44,6 +50,7 @@ export function BenchmarksClient({ initialReport }: Props) {
         return;
       }
       setReport(data.report);
+      if (data.e2eOcrAsr) setE2eReport(data.e2eOcrAsr);
       setLastElapsedMs(data.totalElapsedMs);
     } catch (err) {
       setRunError(err instanceof Error ? err.message : "Network error while running suite");
@@ -53,7 +60,8 @@ export function BenchmarksClient({ initialReport }: Props) {
   };
 
   const downloadReport = () => {
-    const blob = new Blob([JSON.stringify(report, null, 2)], {
+    const payload = { ...report, ...(e2eReport ? { e2eOcrAsr: e2eReport } : {}) };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
@@ -116,11 +124,11 @@ export function BenchmarksClient({ initialReport }: Props) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="type-page text-ink">
-            500-Invoice Verification Benchmarks & Fairness Parity
+            Verification Benchmarks, Live OCR+ASR E2E &amp; Fairness Parity
           </h1>
           <p className="type-body text-muted mt-0.5">
-            Seeded synthetic verification run ({report.seed}), 5-subgroup launch gate, deterministic
-            paise checks, and 50-attack red-team audit.
+            500-bill seeded synthetic rule-core suite ({report.seed}), executed live OCR + Groq Whisper
+            ASR end-to-end lab study, 5-subgroup launch gate, and 50-attack red-team audit.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -149,14 +157,24 @@ export function BenchmarksClient({ initialReport }: Props) {
         <div className="flex items-start sm:items-center gap-2.5">
           <Activity className="w-4 h-4 text-cobalt shrink-0 mt-0.5 sm:mt-0" />
           <div className="type-meta text-muted">
-            <span className="font-semibold text-ink">Scope Honesty:</span> Metrics below are executed
-            in-process on{" "}
+            <span className="font-semibold text-ink">Scope Honesty:</span> Synthetic metrics cover{" "}
             <span className="font-code text-ink">
               {report.totals.totalInvoices} synthetic bills + {report.totals.attackCases} adversarial
               cases
             </span>{" "}
-            using <span className="font-code text-ink">{report.oracleProfile}</span>. Live 10-store
-            Bengaluru field pilot:{" "}
+            using <span className="font-code text-ink">{report.oracleProfile}</span>
+            {e2eReport ? (
+              <>
+                {" "}
+                alongside an executed live HTTP lab study (
+                <span className="font-code text-ink">
+                  {e2eReport.imageSummary.totalCases} bill images + {e2eReport.audioSummary.totalClips}{" "}
+                  Hinglish audio clips
+                </span>
+                )
+              </>
+            ) : null}
+            . Live 10-store Bengaluru field pilot:{" "}
             <span className="pill-warning type-pill px-2 py-0.5 rounded">
               Not Run ({report.latency.pilotProtocolStoreCount}-Store Protocol Ready)
             </span>
@@ -347,6 +365,30 @@ export function BenchmarksClient({ initialReport }: Props) {
                   runs)
                 </div>
               </div>
+              {e2eReport ? (
+                <>
+                  <div className="rounded-lg bg-subtle p-2.5 border border-line">
+                    <div className="type-kpi-label text-faint">Live HTTP OCR (t0 -&gt; t_flag)</div>
+                    <div className="type-section numeral text-ink mt-0.5">
+                      {e2eReport.imageSummary.wallClockP50Ms} ms (p50)
+                    </div>
+                    <div className="type-meta text-faint mt-0.5">
+                      p95 {e2eReport.imageSummary.wallClockP95Ms} ms · max{" "}
+                      {e2eReport.imageSummary.wallClockMaxMs} ms ({e2eReport.imageSummary.totalCases} images)
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-subtle p-2.5 border border-line">
+                    <div className="type-kpi-label text-faint">Live Whisper ASR + Verify</div>
+                    <div className="type-section numeral text-ink mt-0.5">
+                      {e2eReport.audioSummary.totalE2eP50Ms} ms (p50)
+                    </div>
+                    <div className="type-meta text-faint mt-0.5">
+                      p95 {e2eReport.audioSummary.totalE2eP95Ms} ms · max{" "}
+                      {e2eReport.audioSummary.totalE2eMaxMs} ms ({e2eReport.audioSummary.totalClips} clips)
+                    </div>
+                  </div>
+                </>
+              ) : null}
             </div>
             <div className="type-meta text-muted">
               Instrumented <span className="font-code text-ink">t0 -&gt; t_flag</span> telemetry ready for{" "}
@@ -414,6 +456,197 @@ export function BenchmarksClient({ initialReport }: Props) {
           ))}
         </div>
       </div>
+
+      {/* Executed Live End-to-End OCR + Groq Whisper ASR Lab Study */}
+      {e2eReport ? (
+        <div className="app-card p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div>
+              <h2 className="type-section text-ink flex items-center gap-1.5">
+                <ScanText className="w-4 h-4 text-cobalt" />
+                Executed End-to-End OCR + Groq Whisper ASR Lab Study ({e2eReport.imageSummary.totalCases} Images +{" "}
+                {e2eReport.audioSummary.totalClips} Audio Clips)
+              </h2>
+              <p className="type-meta text-muted mt-0.5">
+                Live HTTPS round-trip against{" "}
+                <span className="font-code text-ink">{e2eReport.targetBaseUrl}</span> ·{" "}
+                <span className="font-code">{e2eReport.runId}</span> ·{" "}
+                {e2eReport.imageSummary.enginesObserved.join(", ")} + {e2eReport.audioSummary.asrModel}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="pill-warning type-pill px-2 py-0.5 rounded">
+                10-Store Pilot: Not Run (Gate 5 Hold)
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="rounded-lg border border-line bg-subtle/60 p-3">
+              <div className="type-kpi-label text-faint">Clarity Pass / Blurry Abstain</div>
+              <div className="type-section numeral text-ink mt-1">
+                {e2eReport.imageSummary.clarityPassRatePct}% / {e2eReport.imageSummary.blurryAbstentionRatePct}%
+              </div>
+              <div className="type-meta text-muted mt-0.5">
+                {e2eReport.imageSummary.blurryAbstentionCorrect}/{e2eReport.imageSummary.blurryAbstentionTotal} blurred &lt;85 abstained
+              </div>
+            </div>
+            <div className="rounded-lg border border-line bg-subtle/60 p-3">
+              <div className="type-kpi-label text-faint">OCR Line &amp; Grand Total Match</div>
+              <div className="type-section numeral text-ink mt-1">
+                {e2eReport.imageSummary.lineExtractionRecallPct}% / {e2eReport.imageSummary.grandTotalExactMatchPct}%
+              </div>
+              <div className="type-meta text-muted mt-0.5">
+                GSTIN {e2eReport.imageSummary.gstinMatchRatePct}% · Fault accuracy {e2eReport.imageSummary.faultAccuracyPct}%
+              </div>
+            </div>
+            <div className="rounded-lg border border-line bg-subtle/60 p-3">
+              <div className="type-kpi-label text-faint">OCR Wall-Clock (t0 -&gt; t_flag)</div>
+              <div className="type-section numeral text-ink mt-1">
+                p50 {e2eReport.imageSummary.wallClockP50Ms} ms
+              </div>
+              <div className="type-meta text-muted mt-0.5">
+                p95 {e2eReport.imageSummary.wallClockP95Ms} ms · max {e2eReport.imageSummary.wallClockMaxMs} ms
+              </div>
+            </div>
+            <div className="rounded-lg border border-line bg-subtle/60 p-3">
+              <div className="type-kpi-label text-faint">Whisper Hinglish Shortage Recall</div>
+              <div className="type-section numeral text-ink mt-1">
+                {e2eReport.audioSummary.shortageRecallPct}% ({e2eReport.audioSummary.shortageAndRateMatchCount}/
+                {e2eReport.audioSummary.shortageAndRateTotal})
+              </div>
+              <div className="type-meta text-muted mt-0.5">
+                ASR p50 {e2eReport.audioSummary.asrLatencyP50Ms} ms · Negation{" "}
+                {e2eReport.audioSummary.negationControlPassed ? "Pass" : "Fail"} · PII{" "}
+                {e2eReport.audioSummary.piiRedactionPassed ? "Pass" : "Fail"}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex rounded-lg border border-line bg-subtle p-0.5">
+              <button
+                type="button"
+                onClick={() => setE2eTab("images")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md type-pill cursor-pointer ${
+                  e2eTab === "images" ? "bg-surface text-ink shadow-xs" : "text-muted hover:text-ink"
+                }`}
+              >
+                <ScanText className="w-3.5 h-3.5" />
+                Image OCR Cases ({e2eReport.imageResults.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setE2eTab("audio")}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md type-pill cursor-pointer ${
+                  e2eTab === "audio" ? "bg-surface text-ink shadow-xs" : "text-muted hover:text-ink"
+                }`}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                Hinglish Whisper Clips ({e2eReport.audioResults.length})
+              </button>
+            </div>
+            <span className="type-meta font-code text-faint">
+              Executed {e2eReport.executedAtIso}
+            </span>
+          </div>
+
+          {e2eTab === "images" ? (
+            <div className="overflow-x-auto rounded-lg border border-line max-h-80 overflow-y-auto">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-subtle z-10">
+                  <tr className="border-b border-line text-faint">
+                    <th className="py-2 px-3 type-table-head">Case ID</th>
+                    <th className="py-2 px-3 type-table-head">Group</th>
+                    <th className="py-2 px-3 type-table-head text-right">Clarity</th>
+                    <th className="py-2 px-3 type-table-head">Engine</th>
+                    <th className="py-2 px-3 type-table-head text-right">Lines</th>
+                    <th className="py-2 px-3 type-table-head text-right">Wall-Clock</th>
+                    <th className="py-2 px-3 type-table-head text-right">Outcome</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {e2eReport.imageResults.map((row) => {
+                    const ok = row.expectedClarityPass
+                      ? row.faultDetectionPassed && row.grandTotalMatched
+                      : row.abstentionPassed;
+                    return (
+                      <tr key={row.caseId} className="hover:bg-subtle/60">
+                        <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                          {row.caseId}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-muted whitespace-nowrap">
+                          {row.merchandiseGroup === "blurry_control"
+                            ? "Blurry <85 Control"
+                            : labelFor(MERCHANDISE_LABELS, row.merchandiseGroup, row.merchandiseGroup)}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                          {row.clarityScore}/255
+                        </td>
+                        <td className="py-2 px-3 type-table-cell font-code text-muted whitespace-nowrap">
+                          {row.ocrEngine}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                          {row.extractedLineCount}/{row.expectedLineCount}
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                          {row.wallClockMs} ms
+                        </td>
+                        <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                          <span className={`type-pill px-2 py-0.5 rounded ${ok ? "pill-success" : "pill-warning"}`}>
+                            {row.abstainedClarity ? "Abstained" : ok ? "Pass" : "Review"}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-line">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-line bg-subtle text-faint">
+                    <th className="py-2 px-3 type-table-head">Clip</th>
+                    <th className="py-2 px-3 type-table-head">Transcript Preview</th>
+                    <th className="py-2 px-3 type-table-head text-right">PII Masked</th>
+                    <th className="py-2 px-3 type-table-head text-right">ASR / Total</th>
+                    <th className="py-2 px-3 type-table-head text-right">Match</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {e2eReport.audioResults.map((row) => (
+                    <tr key={row.caseId} className="hover:bg-subtle/60">
+                      <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                        {row.caseId}
+                      </td>
+                      <td className="py-2 px-3 type-table-cell text-muted max-w-md truncate">
+                        {row.scrubbedTranscript}
+                      </td>
+                      <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                        {row.redactionCount}
+                      </td>
+                      <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                        {row.asrLatencyMs} / {row.totalWallClockMs} ms
+                      </td>
+                      <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                        <span
+                          className={`type-pill px-2 py-0.5 rounded ${
+                            row.matchedExpectation ? "pill-success" : "pill-danger"
+                          }`}
+                        >
+                          {row.matchedExpectation ? "Pass" : "Miss"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* 50-Attack Adversarial Red-Team Evidence Table */}
       <div className="app-card p-4 space-y-3">

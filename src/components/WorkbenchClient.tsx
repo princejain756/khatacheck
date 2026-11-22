@@ -6,11 +6,14 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
+  FileAudio,
   FileText,
   Lock,
   Mic,
+  ScanText,
   ShieldAlert,
   ShieldCheck,
+  Square,
   Upload,
 } from "lucide-react";
 import {
@@ -21,7 +24,7 @@ import {
 } from "@/lib/display-labels";
 import { countLabel, formatPaiseINR } from "@/lib/money";
 import type { DemoScenario } from "@/lib/bill-scenarios";
-import type { InvoiceInput, VerificationResult } from "@/lib/types";
+import type { InvoiceInput, OcrMeta, TranscribeResult, VerificationResult } from "@/lib/types";
 
 interface Props {
   scenarios: DemoScenario[];
@@ -55,7 +58,19 @@ export function WorkbenchClient({
   const [overrideMode, setOverrideMode] = useState<"overridden_clean" | "contested_appeal">("overridden_clean");
   const [overrideReason, setOverrideReason] = useState("");
   const [dwellSec, setDwellSec] = useState(1);
+  const [ocrMeta, setOcrMeta] = useState<OcrMeta | null>(null);
+  const [extractKind, setExtractKind] = useState<string>("structured_scenario");
+  const [uploadedPreviewUrl, setUploadedPreviewUrl] = useState<string | null>(null);
+  const [asrMeta, setAsrMeta] = useState<TranscribeResult | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSec, setRecordingSec] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const audioInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<number | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -63,6 +78,28 @@ export function WorkbenchClient({
     }, 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (recordTimerRef.current !== null) {
+        window.clearInterval(recordTimerRef.current);
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    };
+  }, []);
+
+  const updateUploadedPreview = (nextUrl: string | null) => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+    }
+    previewUrlRef.current = nextUrl;
+    setUploadedPreviewUrl(nextUrl);
+  };
 
   const runScenario = async (scenarioId: string, customVoice?: string, scrubFlag = enablePiiScrub) => {
     setBusy(true);
@@ -82,8 +119,12 @@ export function WorkbenchClient({
       setSelectedId(scenarioId);
       setInvoice(data.invoice);
       setResult(data.verification);
+      setOcrMeta(null);
+      setExtractKind(data.extractKind || "structured_scenario");
+      updateUploadedPreview(null);
       if (customVoice === undefined) {
         setVoiceInput(data.invoice.voiceTranscriptRaw ?? "");
+        setAsrMeta(null);
       }
       setActiveLineHighlight(
         data.verification.faults.find(
@@ -97,6 +138,139 @@ export function WorkbenchClient({
       setStatusMsg(e instanceof Error ? e.message : "Unable to verify bill");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const transcribeAudioFile = async (audioFile: File) => {
+    setBusy(true);
+    setStatusMsg(null);
+    try {
+      const form = new FormData();
+      form.append("file", audioFile);
+      const trResp = await fetch("/api/transcribe", { method: "POST", body: form });
+      const trData = await trResp.json();
+      if (!trResp.ok) {
+        throw new Error(trData.error || "Groq Whisper transcription failed");
+      }
+      const tr = trData as TranscribeResult;
+      setAsrMeta(tr);
+      const nextVoice = tr.transcript || "";
+      setVoiceInput(nextVoice);
+
+      const analyzeResp = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoice: { ...invoice, voiceTranscriptRaw: nextVoice },
+          enablePiiScrub,
+        }),
+      });
+      const analyzeData = await analyzeResp.json();
+      if (!analyzeResp.ok) {
+        throw new Error(analyzeData.error || "Voice reconciliation failed");
+      }
+      setInvoice(analyzeData.invoice);
+      setResult(analyzeData.verification);
+      setActiveLineHighlight(
+        analyzeData.verification.faults.find(
+          (f: { category?: string; lineNumber?: number }) => f.category === "voice_shortage" && f.lineNumber
+        )?.lineNumber ??
+          analyzeData.verification.faults.find((f: { lineNumber?: number }) => f.lineNumber)?.lineNumber ??
+          null
+      );
+      setStatusMsg(
+        `Transcribed ${audioFile.name} via ${tr.model} in ${tr.asrLatencyMs} ms (${tr.redactionCount} PII masked) and reconciled against invoice rows.`
+      );
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : "Voice transcription failed");
+    } finally {
+      setBusy(false);
+      if (audioInputRef.current) audioInputRef.current.value = "";
+    }
+  };
+
+  const stopRecording = () => {
+    if (recordTimerRef.current !== null) {
+      window.clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    } else {
+      setIsRecording(false);
+      setRecordingSec(0);
+    }
+  };
+
+  const startRecording = async () => {
+    if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setStatusMsg("Microphone recording is unavailable in this browser; upload an .mp3, .wav, .m4a, or .webm clip instead.");
+      return;
+    }
+    setStatusMsg(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ].find((t) => MediaRecorder.isTypeSupported(t));
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          audioChunksRef.current.push(ev.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        if (recordTimerRef.current !== null) {
+          window.clearInterval(recordTimerRef.current);
+          recordTimerRef.current = null;
+        }
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((t) => t.stop());
+          mediaStreamRef.current = null;
+        }
+        setIsRecording(false);
+        setRecordingSec(0);
+
+        const actualMime = recorder.mimeType || mimeType || "audio/webm";
+        const ext = actualMime.includes("ogg")
+          ? ".ogg"
+          : actualMime.includes("mp4") || actualMime.includes("m4a")
+            ? ".m4a"
+            : ".webm";
+        const blob = new Blob(audioChunksRef.current, { type: actualMime });
+        if (blob.size > 0) {
+          const recordedFile = new File([blob], `hinglish_voice_note${ext}`, { type: actualMime });
+          void transcribeAudioFile(recordedFile);
+        }
+      };
+
+      recorder.start();
+      setIsRecording(true);
+      setRecordingSec(0);
+      recordTimerRef.current = window.setInterval(() => {
+        setRecordingSec((prev) => {
+          if (prev + 1 >= 45) {
+            stopRecording();
+            return 45;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    } catch (e) {
+      setStatusMsg(
+        e instanceof Error
+          ? `Microphone access failed (${e.message}). Upload an .mp3, .wav, .m4a, or .webm clip instead.`
+          : "Microphone access denied."
+      );
     }
   };
 
@@ -128,6 +302,12 @@ export function WorkbenchClient({
     if (!file) return;
     setBusy(true);
     setStatusMsg(null);
+    const isImg = /\.(png|jpg|jpeg|webp)$/i.test(file.name) || file.type.startsWith("image/");
+    if (isImg) {
+      updateUploadedPreview(URL.createObjectURL(file));
+    } else {
+      updateUploadedPreview(null);
+    }
     try {
       const form = new FormData();
       form.append("file", file);
@@ -139,7 +319,18 @@ export function WorkbenchClient({
       setSelectedId("CUSTOM-UPLOAD");
       setInvoice(data.invoice);
       setResult(data.verification);
-      setStatusMsg(`Uploaded ${file.name} (${data.extractKind.replace(/_/g, " ")}) inspected.`);
+      setOcrMeta(data.ocrMeta ?? null);
+      setExtractKind(data.extractKind || "custom_upload");
+      setActiveLineHighlight(
+        data.verification.faults.find((f: { lineNumber?: number }) => f.lineNumber)?.lineNumber ?? null
+      );
+      if (data.ocrMeta) {
+        setStatusMsg(
+          `Uploaded ${file.name} (${data.extractKind.replace(/_/g, " ")}, clarity ${data.ocrMeta.clarityScore}/255, ${data.ocrMeta.ocrLatencyMs} ms).`
+        );
+      } else {
+        setStatusMsg(`Uploaded ${file.name} (${data.extractKind.replace(/_/g, " ")}) inspected.`);
+      }
       setDwellSec(1);
     } catch (e) {
       setStatusMsg(e instanceof Error ? e.message : "Upload failed");
@@ -339,7 +530,7 @@ export function WorkbenchClient({
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.csv,.json,.pdf,.png,.jpg,.jpeg"
+              accept=".txt,.csv,.json,.pdf,.png,.jpg,.jpeg,.webp"
               onChange={(e) => handleUpload(e.target.files?.[0])}
               className="hidden"
               id="custom-bill-upload"
@@ -455,36 +646,117 @@ export function WorkbenchClient({
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg border border-line bg-subtle p-4 space-y-2.5">
-                <div className="flex items-center justify-between border-b border-line pb-2">
-                  <div>
-                    <div className="type-table-cell font-semibold text-ink">{invoice.vendorName}</div>
-                    <div className="font-code type-meta text-muted">
-                      GSTIN: {invoice.vendorGstin} · Inv {invoice.invoiceNumber}
-                    </div>
-                  </div>
-                  <FileText className="w-4 h-4 text-faint shrink-0" />
-                </div>
-                <div className="type-meta text-muted flex flex-wrap gap-3">
-                  <span>Date: {invoice.invoiceDate}</span>
-                  <span>Place of Supply: State {invoice.placeOfSupplyStateCode}</span>
-                  <span className="numeral">Clarity: {invoice.clarityScore}/255</span>
-                </div>
-                {invoice.notesRaw && (
-                  <div className="p-2.5 rounded bg-surface border border-line font-code text-xs text-muted break-words">
-                    <span className="font-semibold text-ink">Sanitized Bill Note Preview: </span>
-                    {enablePiiScrub ? result.dpdpScrubbedNotes : invoice.notesRaw}
+              <div className="space-y-3">
+                {uploadedPreviewUrl && (
+                  <div className="rounded-lg overflow-hidden border border-line bg-white p-1.5">
+                    <Image
+                      src={uploadedPreviewUrl}
+                      alt={`Uploaded bill preview from ${invoice.vendorName}`}
+                      width={900}
+                      height={1200}
+                      unoptimized
+                      className="w-full max-h-56 object-contain block mx-auto"
+                    />
                   </div>
                 )}
+                <div className="rounded-lg border border-line bg-subtle p-4 space-y-2.5">
+                  <div className="flex items-center justify-between border-b border-line pb-2">
+                    <div>
+                      <div className="type-table-cell font-semibold text-ink">{invoice.vendorName}</div>
+                      <div className="font-code type-meta text-muted">
+                        GSTIN: {invoice.vendorGstin || "Pending"} · Inv {invoice.invoiceNumber}
+                      </div>
+                    </div>
+                    <FileText className="w-4 h-4 text-faint shrink-0" />
+                  </div>
+                  <div className="type-meta text-muted flex flex-wrap gap-3">
+                    <span>Date: {invoice.invoiceDate}</span>
+                    <span>Place of Supply: State {invoice.placeOfSupplyStateCode}</span>
+                    <span className="numeral">Clarity: {invoice.clarityScore}/255</span>
+                  </div>
+                  {invoice.notesRaw && (
+                    <div className="p-2.5 rounded bg-surface border border-line font-code text-xs text-muted break-words max-h-24 overflow-y-auto">
+                      <span className="font-semibold text-ink">Sanitized Bill Note Preview: </span>
+                      {enablePiiScrub ? result.dpdpScrubbedNotes : invoice.notesRaw}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {ocrMeta && (
+              <div
+                data-testid="ocr-clarity-telemetry"
+                className="rounded-lg border border-line bg-subtle/80 p-3 space-y-2.5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="type-kpi-label text-ink flex items-center gap-1.5">
+                    <ScanText className="w-3.5 h-3.5 text-cobalt" />
+                    OCR &amp; Clarity Telemetry
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`type-pill px-2 py-0.5 rounded ${
+                        ocrMeta.clarityScore >= 85 ? "pill-success" : "pill-danger"
+                      }`}
+                    >
+                      {ocrMeta.clarityScore >= 85 ? "Clarity >= 85 Pass" : "Below 85 Retake"}
+                    </span>
+                    <span className="type-pill px-2 py-0.5 rounded pill-neutral font-code">
+                      {extractKind}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded bg-surface border border-line p-2">
+                    <div className="type-meta text-faint">Laplacian Clarity</div>
+                    <div className="type-table-cell font-semibold numeral text-ink">
+                      {ocrMeta.clarityScore}/255
+                    </div>
+                    <div className="type-meta text-faint truncate">
+                      {ocrMeta.clarityMethod === "python_pil_laplacian_3x3"
+                        ? "3x3 Laplacian"
+                        : "Byte Entropy"}
+                    </div>
+                  </div>
+                  <div className="rounded bg-surface border border-line p-2">
+                    <div className="type-meta text-faint">OCR Engine</div>
+                    <div className="type-table-cell font-semibold text-ink truncate">
+                      {ocrMeta.engine === "tesseract_cli"
+                        ? "Tesseract Local"
+                        : ocrMeta.engine === "tesseract_js"
+                          ? "Tesseract JS"
+                          : "Abstained"}
+                    </div>
+                    <div className="type-meta text-faint truncate">
+                      {ocrMeta.usedLlmStructurer ? "Scrubbed Fallback" : "Deterministic Parser"}
+                    </div>
+                  </div>
+                  <div className="rounded bg-surface border border-line p-2">
+                    <div className="type-meta text-faint">OCR Latency</div>
+                    <div className="type-table-cell font-semibold numeral text-ink">
+                      {ocrMeta.ocrLatencyMs} ms
+                    </div>
+                    <div className="type-meta text-faint truncate">Local server</div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="type-meta text-faint mb-1">Scrubbed OCR Preview</div>
+                  <pre className="type-meta font-code text-muted bg-surface border border-line rounded p-2 whitespace-pre-wrap break-words max-h-24 overflow-y-auto">
+                    {ocrMeta.scrubbedOcrPreview || "(clarity gate abstained prior to OCR)"}
+                  </pre>
+                </div>
               </div>
             )}
 
             {/* Hinglish Voice Reconciliation Interactive Input */}
-            <div className="pt-2 border-t border-line space-y-2">
+            <div className="pt-2 border-t border-line space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <label htmlFor="voice-transcript" className="type-kpi-label text-ink flex items-center gap-1.5">
                   <Mic className="w-3.5 h-3.5" />
-                  15s Bilingual Receiving Voice Note (Editable)
+                  15s Bilingual Receiving Voice Note (Live ASR / Editable)
                 </label>
                 <button
                   type="button"
@@ -497,6 +769,72 @@ export function WorkbenchClient({
                   {enablePiiScrub ? "DPDP Scrub ON" : "DPDP Scrub OFF"}
                 </button>
               </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy && !isRecording}
+                  onClick={isRecording ? stopRecording : () => void startRecording()}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border type-pill cursor-pointer disabled:opacity-50 ${
+                    isRecording
+                      ? "pill-danger border-red-500/50"
+                      : "bg-subtle border-line-strong text-ink hover:bg-rail-hover"
+                  }`}
+                >
+                  {isRecording ? (
+                    <>
+                      <Square className="w-3 h-3 fill-current" />
+                      Stop Recording ({recordingSec}s)
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-3.5 h-3.5 text-cobalt" />
+                      Record Hinglish Voice Note
+                    </>
+                  )}
+                </button>
+
+                <input
+                  ref={audioInputRef}
+                  type="file"
+                  accept=".mp3,.wav,.m4a,.webm,.ogg,audio/*"
+                  onChange={(e) => {
+                    const clip = e.target.files?.[0];
+                    if (clip) void transcribeAudioFile(clip);
+                  }}
+                  className="hidden"
+                  id="audio-clip-upload"
+                />
+                <label
+                  htmlFor="audio-clip-upload"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink cursor-pointer hover:bg-subtle"
+                >
+                  <FileAudio className="w-3.5 h-3.5 text-cobalt" />
+                  Upload Audio Clip (.mp3 / .wav / .m4a / .webm)
+                </label>
+              </div>
+
+              {asrMeta && (
+                <div
+                  data-testid="asr-telemetry"
+                  className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-subtle px-2.5 py-1.5"
+                >
+                  <span className="type-pill px-2 py-0.5 rounded pill-cobalt font-code">
+                    {asrMeta.model}
+                  </span>
+                  <span className="type-meta font-code numeral text-ink">
+                    ASR Latency: {asrMeta.asrLatencyMs} ms
+                  </span>
+                  {asrMeta.durationSec !== null && (
+                    <span className="type-meta font-code numeral text-muted">
+                      Clip: {asrMeta.durationSec}s
+                    </span>
+                  )}
+                  <span className="type-meta numeral text-muted">
+                    {asrMeta.redactionCount} PII masked
+                  </span>
+                </div>
+              )}
 
               <textarea
                 id="voice-transcript"
