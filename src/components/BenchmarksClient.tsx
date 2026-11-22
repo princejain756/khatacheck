@@ -842,7 +842,8 @@ export function BenchmarksClient({
           );
           const missedAttacks = data.results.filter((r) => r.attack !== null && r.attackDefeated === false);
           const lowContrastRows = data.results.filter((r) => r.attackStyle === "low_contrast");
-          const lowContrastOcrDetected = lowContrastRows.filter((r) => r.extractedLineCount > 0).length;
+          const lowContrastGuardDetected = lowContrastRows.filter((r) => r.promptGuardBlocked).length;
+          const hasAttacks = data.injectionSummary.totalAttacks > 0;
 
           return (
             <div key={key} className="app-card p-4 space-y-4">
@@ -928,27 +929,45 @@ export function BenchmarksClient({
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-line bg-subtle/60 p-3">
-                  <div className="type-kpi-label text-faint">
-                    Visual Injections ({data.injectionSummary.totalAttacks} Separate Attacks)
+                {hasAttacks ? (
+                  <div className="rounded-lg border border-line bg-subtle/60 p-3">
+                    <div className="type-kpi-label text-faint">
+                      Visual Injections ({data.injectionSummary.totalAttacks} Separate Attacks)
+                    </div>
+                    <div className="type-section numeral text-ink mt-1">
+                      {data.injectionSummary.attackDefeatedCount}/{data.injectionSummary.totalAttacks} (
+                      {data.injectionSummary.attackDefeatedRatePct}%) Defeated
+                    </div>
+                    <div className="type-meta text-muted mt-0.5 leading-snug">
+                      Preserved {data.injectionSummary.grandTotalPreservedCount}/
+                      {data.injectionSummary.totalAttacks} ({data.injectionSummary.grandTotalPreservedRatePct}%) ·
+                      Guard {data.injectionSummary.promptGuardDetectedCount}/{data.injectionSummary.totalAttacks}{" "}
+                      ({data.injectionSummary.promptGuardDetectedRatePct}%) · Misses ({missedAttacks.length}):{" "}
+                      {missedAttacks.length > 0
+                        ? missedAttacks
+                            .map((m) => `${m.caseId} (${m.attack ?? "unknown"}/${m.attackStyle ?? "unknown"})`)
+                            .join(", ")
+                        : "none"}
+                      {lowContrastRows.length > 0
+                        ? ` · low_contrast: ${lowContrastGuardDetected}/${lowContrastRows.length} guard-detected (low-contrast note unextracted by OCR; pixels isolated from LLM)`
+                        : ""}
+                    </div>
                   </div>
-                  <div className="type-section numeral text-ink mt-1">
-                    {data.injectionSummary.attackDefeatedCount}/{data.injectionSummary.totalAttacks} (
-                    {data.injectionSummary.attackDefeatedRatePct}%) Defeated
+                ) : (
+                  <div className="rounded-lg border border-line bg-subtle/60 p-3">
+                    <div className="type-kpi-label text-faint">
+                      Clean-Only Held-Out Scope (0 Attacks)
+                    </div>
+                    <div className="type-section numeral text-ink mt-1">
+                      {data.cleanSummary.promptGuardFalsePositiveCount}/{data.cleanSummary.totalCases}{" "}
+                      Prompt-Guard FP
+                    </div>
+                    <div className="type-meta text-muted mt-0.5 leading-snug">
+                      Strictly disjoint unseen clean bills · Clarity gate passed{" "}
+                      {data.overallSummary.clarityPassedCount}/{data.overallSummary.totalCases}
+                    </div>
                   </div>
-                  <div className="type-meta text-muted mt-0.5 leading-snug">
-                    Preserved {data.injectionSummary.grandTotalPreservedCount}/
-                    {data.injectionSummary.totalAttacks} ({data.injectionSummary.grandTotalPreservedRatePct}%) ·
-                    Guard {data.injectionSummary.promptGuardDetectedCount}/{data.injectionSummary.totalAttacks}{" "}
-                    ({data.injectionSummary.promptGuardDetectedRatePct}%) · Misses ({missedAttacks.length}):{" "}
-                    {missedAttacks.length > 0
-                      ? missedAttacks.map((m) => `${m.caseId} (${m.attackStyle ?? "no_review"})`).join(", ")
-                      : "none"}
-                    {lowContrastRows.length > 0
-                      ? ` · low_contrast: ${lowContrastOcrDetected}/${lowContrastRows.length} ingested by OCR (pixels isolated from LLM)`
-                      : ""}
-                  </div>
-                </div>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -963,7 +982,7 @@ export function BenchmarksClient({
                     }`}
                   >
                     <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                    Degradation &amp; Attack Breakdown
+                    {hasAttacks ? "Degradation & Attack Breakdown" : "Clean Degradation Breakdown"}
                   </button>
                   <button
                     type="button"
@@ -987,7 +1006,7 @@ export function BenchmarksClient({
               </div>
 
               {activeTab === "breakdown" ? (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className={hasAttacks ? "grid grid-cols-1 lg:grid-cols-2 gap-3" : "grid grid-cols-1 gap-3"}>
                   <div className="overflow-x-auto rounded-lg border border-line">
                     <table className="w-full text-left border-collapse">
                       <thead>
@@ -1035,48 +1054,50 @@ export function BenchmarksClient({
                     </table>
                   </div>
 
-                  <div className="overflow-x-auto rounded-lg border border-line">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-line bg-subtle text-faint">
-                          <th className="py-2 px-3 type-table-head">Injection Style</th>
-                          <th className="py-2 px-3 type-table-head text-right">Attacks</th>
-                          <th className="py-2 px-3 type-table-head text-right">Guard Detect</th>
-                          <th className="py-2 px-3 type-table-head text-right">Total Preserved</th>
-                          <th className="py-2 px-3 type-table-head text-right">Defeated</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-line">
-                        {data.injectionSummary.byAttackStyle.map((styleRow) => (
-                          <tr key={styleRow.attackStyle} className="hover:bg-subtle/60">
-                            <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
-                              {styleRow.attackStyle}
-                            </td>
-                            <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
-                              {styleRow.total}
-                            </td>
-                            <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
-                              {styleRow.promptGuardDetected}/{styleRow.total} ({styleRow.promptGuardDetectedPct}%)
-                            </td>
-                            <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
-                              {styleRow.grandTotalPreserved}/{styleRow.total} ({styleRow.grandTotalPreservedPct}%)
-                            </td>
-                            <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
-                              <span
-                                className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
-                                  styleRow.attackDefeated === styleRow.total
-                                    ? "pill-success"
-                                    : "pill-warning"
-                                }`}
-                              >
-                                {styleRow.attackDefeated}/{styleRow.total} ({styleRow.attackDefeatedPct}%)
-                              </span>
-                            </td>
+                  {hasAttacks ? (
+                    <div className="overflow-x-auto rounded-lg border border-line">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-line bg-subtle text-faint">
+                            <th className="py-2 px-3 type-table-head">Injection Style</th>
+                            <th className="py-2 px-3 type-table-head text-right">Attacks</th>
+                            <th className="py-2 px-3 type-table-head text-right">Guard Detect</th>
+                            <th className="py-2 px-3 type-table-head text-right">Total Preserved</th>
+                            <th className="py-2 px-3 type-table-head text-right">Defeated</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-line">
+                          {data.injectionSummary.byAttackStyle.map((styleRow) => (
+                            <tr key={styleRow.attackStyle} className="hover:bg-subtle/60">
+                              <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                                {styleRow.attackStyle}
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                                {styleRow.total}
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                                {styleRow.promptGuardDetected}/{styleRow.total} ({styleRow.promptGuardDetectedPct}%)
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                                {styleRow.grandTotalPreserved}/{styleRow.total} ({styleRow.grandTotalPreservedPct}%)
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                                <span
+                                  className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                                    styleRow.attackDefeated === styleRow.total
+                                      ? "pill-success"
+                                      : "pill-warning"
+                                  }`}
+                                >
+                                  {styleRow.attackDefeated}/{styleRow.total} ({styleRow.attackDefeatedPct}%)
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-lg border border-line max-h-80 overflow-y-auto">
