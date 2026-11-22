@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrubPiiForModelEgress } from "@/lib/dpdp-privacy";
+import {
+  checkDailyGroqBudget,
+  checkRateLimit,
+  extractClientIp,
+  tryAcquireConcurrency,
+  validateAudioMagicBytes,
+} from "@/lib/rate-limit";
 import { PayloadTooLargeError, readRequestBufferWithLimit } from "@/lib/upload-analyzer";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
@@ -12,6 +19,7 @@ const EXT_TO_MIME: Readonly<Record<string, string>> = {
   ".mp3": "audio/mpeg",
   ".m4a": "audio/mp4",
   ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
 };
 
 const MIME_TO_EXT: Readonly<Record<string, string>> = {
@@ -27,6 +35,8 @@ const MIME_TO_EXT: Readonly<Record<string, string>> = {
   "audio/x-m4a": ".m4a",
   "audio/ogg": ".ogg",
   "application/ogg": ".ogg",
+  "audio/flac": ".flac",
+  "audio/x-flac": ".flac",
 };
 
 const HINGLISH_RETAIL_GLOSSARY_PROMPT =
@@ -35,7 +45,10 @@ const HINGLISH_RETAIL_GLOSSARY_PROMPT =
   "Turmeric Powder 1 pkt damaged, Sugar M-30 rate 42 se 48 badh gaya, Cotton Cambric bhav 120 to 155 ho gaya, " +
   "Paracetamol 3 strip nahi aaya, Amoxicillin HSN 3004, peti, bori, dabba, carton, box, kg, ltr, pkt, mtr, GSTIN, challan.";
 
-function resolveAudioMeta(filename: string, mimeType: string): { safeName: string; safeMime: string } | null {
+function resolveAudioMeta(
+  filename: string,
+  mimeType: string
+): { safeName: string; safeMime: string; ext: string } | null {
   const lowerName = (filename || "").toLowerCase().trim();
   const baseMime = (mimeType || "").toLowerCase().split(";")[0].trim();
 
@@ -43,7 +56,8 @@ function resolveAudioMeta(filename: string, mimeType: string): { safeName: strin
     if (lowerName.endsWith(ext)) {
       return {
         safeName: `voice_note${ext}`,
-        safeMime: baseMime || canonicalMime,
+        safeMime: canonicalMime,
+        ext,
       };
     }
   }
@@ -53,6 +67,7 @@ function resolveAudioMeta(filename: string, mimeType: string): { safeName: strin
     return {
       safeName: `voice_note${ext}`,
       safeMime: EXT_TO_MIME[ext],
+      ext,
     };
   }
 
@@ -60,11 +75,40 @@ function resolveAudioMeta(filename: string, mimeType: string): { safeName: strin
 }
 
 export async function POST(req: NextRequest) {
+  const ip = extractClientIp(req);
+  const rl = checkRateLimit(`transcribe:${ip}`, 12, 60_000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many transcription requests; please wait before retrying." },
+      {
+        status: 429,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": String(rl.retryAfterSec),
+        },
+      }
+    );
+  }
+
   const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json(
       { error: "GROQ_API_KEY is not configured on the server" },
       { status: 503, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+
+  const releaseConcurrency = tryAcquireConcurrency("transcribe", 4);
+  if (!releaseConcurrency) {
+    return NextResponse.json(
+      { error: "Transcription queue is busy; please retry shortly." },
+      {
+        status: 429,
+        headers: {
+          "Cache-Control": "no-store",
+          "Retry-After": "2",
+        },
+      }
     );
   }
 
@@ -106,12 +150,38 @@ export async function POST(req: NextRequest) {
     const audioMeta = resolveAudioMeta(rawFile.name, rawFile.type);
     if (!audioMeta) {
       return NextResponse.json(
-        { error: "Unsupported audio format. Allowed: .webm, .wav, .mp3, .m4a, .ogg" },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
+        { error: "Unsupported audio format. Allowed: .webm, .wav, .mp3, .m4a, .ogg, .flac" },
+        { status: 415, headers: { "Cache-Control": "no-store" } }
       );
     }
 
     const buf = Buffer.from(await rawFile.arrayBuffer());
+    const magicCheck = validateAudioMagicBytes(buf, audioMeta.ext);
+    if (!magicCheck.valid) {
+      return NextResponse.json(
+        { error: magicCheck.reason || "Invalid audio file signature" },
+        { status: 415, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    const budget = checkDailyGroqBudget();
+    if (!budget.allowed) {
+      return NextResponse.json(
+        {
+          error: "Daily voice transcription demo quota reached; paste or edit the transcript manually.",
+          limit: budget.limit,
+          resetAtIso: budget.resetAtIso,
+        },
+        {
+          status: 429,
+          headers: {
+            "Cache-Control": "no-store",
+            "Retry-After": "3600",
+          },
+        }
+      );
+    }
+
     const groqForm = new FormData();
     groqForm.append("file", new File([buf], audioMeta.safeName, { type: audioMeta.safeMime }));
     groqForm.append("model", WHISPER_MODEL);
@@ -141,23 +211,24 @@ export async function POST(req: NextRequest) {
       text?: string;
       duration?: number;
     };
-    const transcript = String(groqData.text ?? "").trim();
+    const rawTranscript = String(groqData.text ?? "").trim();
     const durationSec =
       typeof groqData.duration === "number" && Number.isFinite(groqData.duration)
         ? Number(groqData.duration.toFixed(2))
         : null;
 
-    const scrub = scrubPiiForModelEgress(transcript);
+    const scrub = scrubPiiForModelEgress(rawTranscript);
 
     return NextResponse.json(
       {
-        transcript,
+        transcript: scrub.scrubbedText,
         scrubbedTranscript: scrub.scrubbedText,
         redactionCount: scrub.redactionCount,
         redactedKinds: scrub.redactedKinds,
         durationSec,
         asrLatencyMs,
         model: WHISPER_MODEL,
+        audioEgressDisclosed: true,
       },
       { headers: { "Cache-Control": "no-store" } }
     );
@@ -168,9 +239,19 @@ export async function POST(req: NextRequest) {
         { status: 413, headers: { "Cache-Control": "no-store" } }
       );
     }
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      return NextResponse.json(
+        { error: "Upstream ASR transcription timed out" },
+        { status: 504, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+    const errId = `tr_${Date.now().toString(36)}`;
+    console.error(`[transcribe:${errId}]`, err instanceof Error ? err.message : "unknown_error");
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Audio transcription failed" },
+      { error: "Audio transcription failed", errorId: errId },
       { status: 400, headers: { "Cache-Control": "no-store" } }
     );
+  } finally {
+    releaseConcurrency();
   }
 }

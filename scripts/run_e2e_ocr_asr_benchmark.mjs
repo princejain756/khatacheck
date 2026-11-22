@@ -3,16 +3,55 @@ import fs from "node:fs";
 import path from "node:path";
 
 const DEFAULT_BASE_URL = "https://khatacheck.prince.sh";
+const IS_V2 =
+  process.argv.slice(2).includes("--v2") ||
+  process.argv.slice(2).includes("v2") ||
+  process.env.KHATACHECK_OUTPUT_VARIANT === "v2";
 const MANIFEST_PATH = path.join(
   process.cwd(),
   "benchmark",
   "e2e_fixtures",
   "manifest.json"
 );
-const OUT_SRC_PATH = path.join(process.cwd(), "src", "data", "e2e-ocr-asr-results.json");
-const DEFAULT_STAGE4_OUT_PATH =
-  "/Users/admin/Github/unstop-hackathons/neuraviz-2026/stage4/e2e_ocr_asr_results.json";
+const OUT_SRC_PATH = path.join(
+  process.cwd(),
+  "src",
+  "data",
+  IS_V2 ? "e2e-ocr-asr-results-v2.json" : "e2e-ocr-asr-results.json"
+);
+const DEFAULT_STAGE4_OUT_PATH = IS_V2
+  ? "/Users/admin/Github/unstop-hackathons/neuraviz-2026/stage4/e2e_ocr_asr_results_v2.json"
+  : "/Users/admin/Github/unstop-hackathons/neuraviz-2026/stage4/e2e_ocr_asr_results.json";
 const OUT_STAGE4_PATH = process.env.STAGE4_OUT_PATH || DEFAULT_STAGE4_OUT_PATH;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let lastAnalyzeAtMs = 0;
+let lastTranscribeAtMs = 0;
+
+async function fetchPacedJson(url, buildInit, kind) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const minGapMs = kind === "transcribe" ? 5500 : 2200;
+    const lastAt = kind === "transcribe" ? lastTranscribeAtMs : lastAnalyzeAtMs;
+    const waitMs = lastAt > 0 ? Math.max(0, lastAt + minGapMs - Date.now()) : 0;
+    if (waitMs > 0) await sleep(waitMs);
+    if (kind === "transcribe") lastTranscribeAtMs = Date.now();
+    else lastAnalyzeAtMs = Date.now();
+
+    const resp = await fetch(url, buildInit());
+    const data = await resp.json();
+    if (resp.status === 429 && attempt < 3) {
+      const ra = Number(resp.headers.get("retry-after") || "0");
+      const retryMs = Number.isFinite(ra) && ra > 0 ? ra * 1000 + 250 : 6000;
+      await sleep(retryMs);
+      continue;
+    }
+    return { resp, data };
+  }
+  throw new Error(`Exceeded retry budget calling ${url}`);
+}
 
 function resolveRepoPath(relOrAbsPath) {
   return path.isAbsolute(relOrAbsPath)
@@ -72,16 +111,17 @@ async function runImageCase(baseUrl, item) {
       : lower.endsWith(".webp")
         ? "image/webp"
         : "image/png";
-  const form = new FormData();
-  form.append("file", new File([buf], item.filename, { type: mime }));
-  form.append("enablePiiScrub", "true");
-
   const t0 = performance.now();
-  const resp = await fetch(`${baseUrl}/api/analyze`, {
-    method: "POST",
-    body: form,
-  });
-  const data = await resp.json();
+  const { resp, data } = await fetchPacedJson(
+    `${baseUrl}/api/analyze`,
+    () => {
+      const form = new FormData();
+      form.append("file", new File([buf], item.filename, { type: mime }));
+      form.append("enablePiiScrub", "true");
+      return { method: "POST", body: form };
+    },
+    "analyze"
+  );
   const wallClockMs = Number((performance.now() - t0).toFixed(1));
 
   if (!resp.ok) {
@@ -145,15 +185,16 @@ async function runImageCase(baseUrl, item) {
 
 async function runAudioCase(baseUrl, item) {
   const buf = fs.readFileSync(resolveRepoPath(item.audioPath));
-  const form = new FormData();
-  form.append("file", new File([buf], item.filename, { type: "audio/mpeg" }));
-
   const t0 = performance.now();
-  const asrResp = await fetch(`${baseUrl}/api/transcribe`, {
-    method: "POST",
-    body: form,
-  });
-  const asrData = await asrResp.json();
+  const { resp: asrResp, data: asrData } = await fetchPacedJson(
+    `${baseUrl}/api/transcribe`,
+    () => {
+      const form = new FormData();
+      form.append("file", new File([buf], item.filename, { type: "audio/mpeg" }));
+      return { method: "POST", body: form };
+    },
+    "transcribe"
+  );
   const asrWallClockMs = Number((performance.now() - t0).toFixed(1));
 
   if (!asrResp.ok) {
@@ -161,16 +202,19 @@ async function runAudioCase(baseUrl, item) {
   }
 
   const t1 = performance.now();
-  const analyzeResp = await fetch(`${baseUrl}/api/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      scenarioId: item.scenarioId,
-      voiceTranscript: asrData.transcript || "",
-      enablePiiScrub: true,
+  const { resp: analyzeResp, data: analyzeData } = await fetchPacedJson(
+    `${baseUrl}/api/analyze`,
+    () => ({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scenarioId: item.scenarioId,
+        voiceTranscript: asrData.transcript || "",
+        enablePiiScrub: true,
+      }),
     }),
-  });
-  const analyzeData = await analyzeResp.json();
+    "analyze"
+  );
   const analyzeWallClockMs = Number((performance.now() - t1).toFixed(1));
   const totalWallClockMs = Number((performance.now() - t0).toFixed(1));
 
@@ -317,7 +361,7 @@ async function main() {
   const totalAudioLatencies = audioResults.map((a) => a.totalWallClockMs);
 
   const report = {
-    runId: `KC-E2E-${Date.now()}`,
+    runId: IS_V2 ? `KC-E2E-V2-${Date.now()}` : `KC-E2E-${Date.now()}`,
     executedAtIso: new Date().toISOString(),
     targetBaseUrl: baseUrl,
     targetCodeCommit,

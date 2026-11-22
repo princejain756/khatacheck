@@ -1,6 +1,8 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import os from "node:os";
 
 export type ClarityMethod = "python_pil_laplacian_3x3" | "byte_entropy_fallback";
+export type AllowedImageFormat = "PNG" | "JPEG" | "WEBP";
 
 export interface ImageClarityResult {
   clarityScore: number;
@@ -11,6 +13,37 @@ export interface ImageClarityResult {
   latencyMs: number;
 }
 
+export function sniffAllowedImageFormat(buf: Buffer): AllowedImageFormat | null {
+  if (!buf || buf.length < 12) {
+    if (buf && buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+      return "JPEG";
+    }
+    return null;
+  }
+  if (
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47 &&
+    buf[4] === 0x0d &&
+    buf[5] === 0x0a &&
+    buf[6] === 0x1a &&
+    buf[7] === 0x0a
+  ) {
+    return "PNG";
+  }
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return "JPEG";
+  }
+  if (
+    buf.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buf.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "WEBP";
+  }
+  return null;
+}
+
 const PYTHON_CANDIDATES = [
   process.env.KHATACHECK_PYTHON_BIN,
   "/opt/homebrew/opt/python@3.13/libexec/bin/python3",
@@ -19,6 +52,8 @@ const PYTHON_CANDIDATES = [
   "/usr/bin/python3",
   "python3",
 ].filter((p): p is string => Boolean(p && p.trim()));
+
+let cachedPythonBin: string | null = null;
 
 const PIL_LAPLACIAN_SCRIPT = [
   "import io, json, math, sys, warnings",
@@ -36,7 +71,9 @@ const PIL_LAPLACIAN_SCRIPT = [
   '    print(json.dumps({"variance": 0.0, "score": 0, "width": 0, "height": 0}))',
   "    sys.exit(0)",
   "try:",
-  "    with Image.open(io.BytesIO(data)) as im:",
+  '    with Image.open(io.BytesIO(data), formats=["PNG", "JPEG", "WEBP"]) as im:',
+  '        if im.format not in ("PNG", "JPEG", "WEBP"):',
+  '            raise UnidentifiedImageError("Unsupported format")',
   "        orig_w, orig_h = im.size",
   "        if orig_w * orig_h > 25_000_000:",
   '            raise DecompressionBombError("Image pixel dimensions exceed 25MP limit")',
@@ -113,8 +150,7 @@ function runPythonLaplacian(
   buf: Buffer,
   timeoutMs = 5000
 ): Promise<{
-  ok: boolean;
-  missingPilOrBin: boolean;
+  status: "ok" | "missing" | "timeout" | "crash";
   variance: number;
   score: number;
   width: number;
@@ -123,8 +159,7 @@ function runPythonLaplacian(
   return new Promise((resolve) => {
     let settled = false;
     const done = (val: {
-      ok: boolean;
-      missingPilOrBin: boolean;
+      status: "ok" | "missing" | "timeout" | "crash";
       variance: number;
       score: number;
       width: number;
@@ -135,13 +170,20 @@ function runPythonLaplacian(
       resolve(val);
     };
 
-    let child;
+    let child: ChildProcessWithoutNullStreams;
     try {
-      child = spawn(pythonBin, ["-c", PIL_LAPLACIAN_SCRIPT], {
+      child = spawn(pythonBin, ["-I", "-c", PIL_LAPLACIAN_SCRIPT], {
         stdio: ["pipe", "pipe", "pipe"],
+        cwd: os.tmpdir(),
+        env: {
+          NODE_ENV: process.env.NODE_ENV ?? "production",
+          PATH: process.env.PATH || "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+          LANG: "C.UTF-8",
+          LC_ALL: "C.UTF-8",
+        },
       });
     } catch {
-      done({ ok: false, missingPilOrBin: true, variance: 0, score: 0, width: 0, height: 0 });
+      done({ status: "missing", variance: 0, score: 0, width: 0, height: 0 });
       return;
     }
 
@@ -151,7 +193,7 @@ function runPythonLaplacian(
       } catch {
         // ignore kill failures
       }
-      done({ ok: false, missingPilOrBin: true, variance: 0, score: 0, width: 0, height: 0 });
+      done({ status: "timeout", variance: 0, score: 0, width: 0, height: 0 });
     }, timeoutMs);
 
     const stdoutChunks: Buffer[] = [];
@@ -163,9 +205,15 @@ function runPythonLaplacian(
       // Child exited before consuming all bytes
     });
 
-    child.on("error", () => {
+    child.on("error", (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);
-      done({ ok: false, missingPilOrBin: true, variance: 0, score: 0, width: 0, height: 0 });
+      done({
+        status: err?.code === "ENOENT" ? "missing" : "crash",
+        variance: 0,
+        score: 0,
+        width: 0,
+        height: 0,
+      });
     });
 
     child.on("close", (code) => {
@@ -173,11 +221,11 @@ function runPythonLaplacian(
       const out = Buffer.concat(stdoutChunks).toString("utf8").trim();
       const err = Buffer.concat(stderrChunks).toString("utf8").trim();
       if (code === 42 || err.includes("PIL_IMPORT_ERROR")) {
-        done({ ok: false, missingPilOrBin: true, variance: 0, score: 0, width: 0, height: 0 });
+        done({ status: "missing", variance: 0, score: 0, width: 0, height: 0 });
         return;
       }
       if (code !== 0 || !out) {
-        done({ ok: false, missingPilOrBin: true, variance: 0, score: 0, width: 0, height: 0 });
+        done({ status: "crash", variance: 0, score: 0, width: 0, height: 0 });
         return;
       }
       try {
@@ -188,15 +236,14 @@ function runPythonLaplacian(
           height?: number;
         };
         done({
-          ok: true,
-          missingPilOrBin: false,
+          status: "ok",
           variance: Number(parsed.variance ?? 0),
           score: Math.max(0, Math.min(255, Math.round(Number(parsed.score ?? 0)))),
           width: Number(parsed.width ?? 0),
           height: Number(parsed.height ?? 0),
         });
       } catch {
-        done({ ok: false, missingPilOrBin: true, variance: 0, score: 0, width: 0, height: 0 });
+        done({ status: "crash", variance: 0, score: 0, width: 0, height: 0 });
       }
     });
 
@@ -206,18 +253,41 @@ function runPythonLaplacian(
 
 /**
  * Scores image sharpness from 0 to 255 using a 3x3 grayscale Laplacian variance
- * via python3 + Pillow, falling back to deterministic byte entropy only if python3/PIL is absent.
+ * via python3 + Pillow, failing closed on disallowed magic bytes, crash, or timeout,
+ * and falling back to byte entropy only when python3/PIL is absent.
  */
 export async function scoreImageClarity(
   buf: Buffer,
-  options?: { forceFallback?: boolean }
+  options?: { forceFallback?: boolean; pythonBins?: string[]; timeoutMs?: number }
 ): Promise<ImageClarityResult> {
   const startNs = process.hrtime.bigint();
 
+  if (!sniffAllowedImageFormat(buf)) {
+    const latencyMs = Number((Number(process.hrtime.bigint() - startNs) / 1e6).toFixed(2));
+    return {
+      clarityScore: 0,
+      clarityMethod: "python_pil_laplacian_3x3",
+      laplacianVariance: null,
+      width: null,
+      height: null,
+      latencyMs,
+    };
+  }
+
   if (!options?.forceFallback) {
-    for (const pyBin of PYTHON_CANDIDATES) {
-      const res = await runPythonLaplacian(pyBin, buf);
-      if (res.ok) {
+    const candidates = options?.pythonBins
+      ? options.pythonBins
+      : cachedPythonBin
+        ? [cachedPythonBin, ...PYTHON_CANDIDATES.filter((b) => b !== cachedPythonBin)]
+        : PYTHON_CANDIDATES;
+    let sawTerminalFailure = false;
+
+    for (const pyBin of candidates) {
+      const res = await runPythonLaplacian(pyBin, buf, options?.timeoutMs ?? 5000);
+      if (res.status === "ok") {
+        if (!options?.pythonBins) {
+          cachedPythonBin = pyBin;
+        }
         const latencyMs = Number((Number(process.hrtime.bigint() - startNs) / 1e6).toFixed(2));
         return {
           clarityScore: res.score,
@@ -228,6 +298,24 @@ export async function scoreImageClarity(
           latencyMs,
         };
       }
+      if (res.status === "missing") {
+        if (pyBin === cachedPythonBin) cachedPythonBin = null;
+        continue;
+      }
+      sawTerminalFailure = true;
+      break;
+    }
+
+    if (sawTerminalFailure) {
+      const latencyMs = Number((Number(process.hrtime.bigint() - startNs) / 1e6).toFixed(2));
+      return {
+        clarityScore: 0,
+        clarityMethod: "python_pil_laplacian_3x3",
+        laplacianVariance: null,
+        width: null,
+        height: null,
+        latencyMs,
+      };
     }
   }
 

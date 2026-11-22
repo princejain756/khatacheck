@@ -6,11 +6,79 @@ const DEFAULT_BASE_URL = "https://khatacheck.prince.sh";
 const DATASET_ID = "Divya52/indian-gst-invoices";
 const DATASET_LICENSE = "CC BY 4.0";
 const DATASET_COMMIT = "fece40b9a96ac3949934fc05c714853a5283d730";
-const OUT_SRC_PATH = path.join(process.cwd(), "src", "data", "external-hf-results.json");
-const DEFAULT_STAGE4_OUT_PATH =
-  "/Users/admin/Github/unstop-hackathons/neuraviz-2026/stage4/external_hf_results.json";
-const OUT_STAGE4_PATH = process.env.STAGE4_OUT_PATH || DEFAULT_STAGE4_OUT_PATH;
 const CACHE_DIR = process.env.EXTERNAL_HF_CACHE_DIR || "/tmp/divya_cache";
+
+function resolveOutputPaths(mode) {
+  const stage4Dir = "/Users/admin/Github/unstop-hackathons/neuraviz-2026/stage4";
+  if (mode === "heldout") {
+    return {
+      srcPath: path.join(process.cwd(), "src", "data", "external-hf-heldout-results.json"),
+      stage4Path: process.env.STAGE4_OUT_PATH || path.join(stage4Dir, "external_hf_heldout_results.json"),
+    };
+  }
+  if (mode === "dev-rerun") {
+    return {
+      srcPath: path.join(process.cwd(), "src", "data", "external-hf-dev-rerun.json"),
+      stage4Path: process.env.STAGE4_OUT_PATH || path.join(stage4Dir, "external_hf_dev_rerun.json"),
+    };
+  }
+  return {
+    srcPath: path.join(process.cwd(), "src", "data", "external-hf-results.json"),
+    stage4Path: process.env.STAGE4_OUT_PATH || path.join(stage4Dir, "external_hf_results.json"),
+  };
+}
+
+function parseCliArgs(argv) {
+  let mode = "baseline";
+  let seed = 20261123;
+  let sampleSize = 50;
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === "--mode" && argv[i + 1]) {
+      mode = argv[++i];
+    } else if (a.startsWith("--mode=")) {
+      mode = a.slice("--mode=".length);
+    } else if (a === "--seed" && argv[i + 1]) {
+      seed = Number(argv[++i]);
+    } else if (a.startsWith("--seed=")) {
+      seed = Number(a.slice("--seed=".length));
+    } else if (a === "--sample-size" && argv[i + 1]) {
+      sampleSize = Number(argv[++i]);
+    } else if (a.startsWith("--sample-size=")) {
+      sampleSize = Number(a.slice("--sample-size=".length));
+    }
+  }
+  if (!["baseline", "heldout", "dev-rerun"].includes(mode)) {
+    throw new Error(`Unsupported --mode ${mode}; expected baseline | heldout | dev-rerun`);
+  }
+  return {
+    mode,
+    seed: Number.isFinite(seed) ? Math.trunc(seed) >>> 0 : 20261123,
+    sampleSize: Number.isFinite(sampleSize) && sampleSize > 0 ? Math.trunc(sampleSize) : 50,
+  };
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function seededShuffle(items, rng) {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -136,42 +204,81 @@ async function resolveTargetCodeCommit(baseUrl) {
   }
 }
 
-async function loadSelectedRows() {
+async function loadSelectedRows({ mode, seed, sampleSize }) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   const selected = [];
 
-  console.log(`Fetching batched metadata from HF datasets-server (${DATASET_ID}) ...`);
-  for (let i = 0; i < 15; i += 1) {
-    const idx = Math.floor((i * 2000) / 15);
-    const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(DATASET_ID)}&config=synthetic&split=train&offset=${idx}&length=1`;
-    const data = await fetchWithRetry(url, true);
-    const row = data.rows?.[0]?.row;
-    if (!row) throw new Error(`Missing synthetic row at offset ${idx}`);
-    selected.push({ config: "synthetic", rowIdx: idx, row });
-    if (i < 14) await sleep(200);
-  }
-  console.log("Fetched 15 synthetic metadata rows.");
+  const baselineSynIndices = new Set(Array.from({ length: 15 }, (_, i) => Math.floor((i * 2000) / 15)));
+  const baselineRegIndices = new Set(Array.from({ length: 10 }, (_, i) => Math.floor((i * 40) / 10)));
 
-  await sleep(200);
-  const regUrl = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(DATASET_ID)}&config=regional&split=train&offset=0&length=40`;
-  const regData = await fetchWithRetry(regUrl, true);
-  for (let i = 0; i < 10; i += 1) {
-    const idx = Math.floor((i * 40) / 10);
-    const row = regData.rows?.[idx]?.row;
-    if (!row) throw new Error(`Missing regional row at offset ${idx}`);
-    selected.push({ config: "regional", rowIdx: idx, row });
-  }
-  console.log("Fetched 10 regional metadata rows (single batched call).");
+  console.log(`Fetching batched metadata from HF datasets-server (${DATASET_ID}, mode=${mode}) ...`);
+  if (mode === "heldout") {
+    const regTarget = Math.min(20, Math.floor(sampleSize * 0.4));
+    const synTarget = sampleSize - regTarget;
 
-  await sleep(200);
-  const injUrl = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(DATASET_ID)}&config=injection&split=train&offset=0&length=24`;
-  const injData = await fetchWithRetry(injUrl, true);
-  for (let i = 0; i < 24; i += 1) {
-    const row = injData.rows?.[i]?.row;
-    if (!row) throw new Error(`Missing injection row at offset ${i}`);
-    selected.push({ config: "injection", rowIdx: i, row });
+    const synPool = [];
+    for (let idx = 5; idx < 2000; idx += 1) {
+      if (!baselineSynIndices.has(idx)) synPool.push(idx);
+    }
+    const synChosen = seededShuffle(synPool, mulberry32(seed ^ 0x53594e)).slice(0, synTarget);
+    for (let i = 0; i < synChosen.length; i += 1) {
+      const idx = synChosen[i];
+      const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(DATASET_ID)}&config=synthetic&split=train&offset=${idx}&length=1`;
+      const data = await fetchWithRetry(url, true);
+      const row = data.rows?.[0]?.row;
+      if (!row) throw new Error(`Missing synthetic held-out row at offset ${idx}`);
+      selected.push({ config: "synthetic", rowIdx: idx, row });
+      if (i < synChosen.length - 1) await sleep(200);
+    }
+    console.log(`Fetched ${synChosen.length} disjoint synthetic held-out metadata rows.`);
+
+    await sleep(200);
+    const regUrl = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(DATASET_ID)}&config=regional&split=train&offset=0&length=40`;
+    const regData = await fetchWithRetry(regUrl, true);
+    const regPool = [];
+    for (let idx = 5; idx < 40; idx += 1) {
+      if (!baselineRegIndices.has(idx)) regPool.push(idx);
+    }
+    const regChosen = seededShuffle(regPool, mulberry32(seed ^ 0x524547)).slice(0, regTarget);
+    for (const idx of regChosen) {
+      const row = regData.rows?.[idx]?.row;
+      if (!row) throw new Error(`Missing regional held-out row at offset ${idx}`);
+      selected.push({ config: "regional", rowIdx: idx, row });
+    }
+    console.log(`Fetched ${regChosen.length} disjoint regional held-out metadata rows. Total=${selected.length}`);
+  } else {
+    for (let i = 0; i < 15; i += 1) {
+      const idx = Math.floor((i * 2000) / 15);
+      const url = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(DATASET_ID)}&config=synthetic&split=train&offset=${idx}&length=1`;
+      const data = await fetchWithRetry(url, true);
+      const row = data.rows?.[0]?.row;
+      if (!row) throw new Error(`Missing synthetic row at offset ${idx}`);
+      selected.push({ config: "synthetic", rowIdx: idx, row });
+      if (i < 14) await sleep(200);
+    }
+    console.log("Fetched 15 synthetic metadata rows.");
+
+    await sleep(200);
+    const regUrl = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(DATASET_ID)}&config=regional&split=train&offset=0&length=40`;
+    const regData = await fetchWithRetry(regUrl, true);
+    for (let i = 0; i < 10; i += 1) {
+      const idx = Math.floor((i * 40) / 10);
+      const row = regData.rows?.[idx]?.row;
+      if (!row) throw new Error(`Missing regional row at offset ${idx}`);
+      selected.push({ config: "regional", rowIdx: idx, row });
+    }
+    console.log("Fetched 10 regional metadata rows (single batched call).");
+
+    await sleep(200);
+    const injUrl = `https://datasets-server.huggingface.co/rows?dataset=${encodeURIComponent(DATASET_ID)}&config=injection&split=train&offset=0&length=24`;
+    const injData = await fetchWithRetry(injUrl, true);
+    for (let i = 0; i < 24; i += 1) {
+      const row = injData.rows?.[i]?.row;
+      if (!row) throw new Error(`Missing injection row at offset ${i}`);
+      selected.push({ config: "injection", rowIdx: i, row });
+    }
+    console.log(`Fetched 24 injection metadata rows (single batched call). Total=${selected.length}`);
   }
-  console.log(`Fetched 24 injection metadata rows (single batched call). Total=${selected.length}`);
 
   const forceDownload = process.env.FORCE_HF_DOWNLOAD === "1";
   for (let k = 0; k < selected.length; k += 1) {
@@ -302,24 +409,44 @@ function summarizeSubset(items) {
   };
 }
 
+let lastAnalyzeAtMs = 0;
+
 async function analyzeOne(baseUrl, item) {
   const row = item.row;
   const lbl = typeof row.label === "string" ? JSON.parse(row.label) : row.label;
-  const form = new FormData();
-  form.append("file", new File([item.imageBuf], item.filename, { type: item.mime }));
-  form.append("enablePiiScrub", "true");
 
-  const t0 = performance.now();
-  const resp = await fetch(`${baseUrl}/api/analyze`, {
-    method: "POST",
-    body: form,
-    signal: AbortSignal.timeout(45000),
-  });
-  const data = await resp.json();
-  const wallClockMs = Number((performance.now() - t0).toFixed(1));
+  let resp = null;
+  let data = null;
+  let wallClockMs = 0;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const waitMs = lastAnalyzeAtMs > 0 ? Math.max(0, lastAnalyzeAtMs + 2200 - Date.now()) : 0;
+    if (waitMs > 0) await sleep(waitMs);
+    lastAnalyzeAtMs = Date.now();
 
-  if (!resp.ok) {
-    throw new Error(`Analyze failed for ${row.id} (HTTP ${resp.status}): ${data.error || "unknown"}`);
+    const form = new FormData();
+    form.append("file", new File([item.imageBuf], item.filename, { type: item.mime }));
+    form.append("enablePiiScrub", "true");
+
+    const t0 = performance.now();
+    resp = await fetch(`${baseUrl}/api/analyze`, {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(45000),
+    });
+    data = await resp.json();
+    wallClockMs = Number((performance.now() - t0).toFixed(1));
+
+    if (resp.status === 429 && attempt < 3) {
+      const ra = Number(resp.headers.get("retry-after") || "0");
+      const retryMs = Number.isFinite(ra) && ra > 0 ? ra * 1000 + 300 : 5000;
+      await sleep(retryMs);
+      continue;
+    }
+    break;
+  }
+
+  if (!resp || !resp.ok) {
+    throw new Error(`Analyze failed for ${row.id} (HTTP ${resp?.status ?? "?"}): ${data?.error || "unknown"}`);
   }
 
   const verification = data.verification || {};
@@ -410,12 +537,14 @@ async function analyzeOne(baseUrl, item) {
 }
 
 async function main() {
+  const { mode, seed, sampleSize } = parseCliArgs(process.argv.slice(2));
+  const { srcPath, stage4Path } = resolveOutputPaths(mode);
   const baseUrl = (process.env.KHATACHECK_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
   const targetCodeCommit = await resolveTargetCodeCommit(baseUrl);
-  const selected = await loadSelectedRows();
+  const selected = await loadSelectedRows({ mode, seed, sampleSize });
 
   console.log(
-    `Running external HF benchmark (49 unseen bills from ${DATASET_ID}) live against ${baseUrl} (commit ${targetCodeCommit}) ...`
+    `Running external HF benchmark (${selected.length} unseen bills, mode=${mode}, seed=${seed} from ${DATASET_ID}) live against ${baseUrl} (commit ${targetCodeCommit}) ...`
   );
 
   const results = [];
@@ -424,7 +553,7 @@ async function main() {
     const res = await analyzeOne(baseUrl, item);
     results.push(res);
     console.log(
-      `[EXT ${String(i + 1).padStart(2, "0")}/49] ${res.caseId} (${res.config}/${res.layout}${res.attackStyle ? `/${res.attackStyle}` : ""}) | clarity=${res.clarityScore} | lines=${res.extractedLineCount}/${res.expectedLineCount} | gstin=${res.vendorGstinMatched} | gt=${res.grandTotalMatched} | arith=${res.hasArithmeticMismatch} | pg=${res.promptGuardBlocked} | wall=${res.wallClockMs}ms`
+      `[EXT ${String(i + 1).padStart(2, "0")}/${selected.length}] ${res.caseId} (${res.config}/${res.layout}${res.attackStyle ? `/${res.attackStyle}` : ""}) | clarity=${res.clarityScore} | lines=${res.extractedLineCount}/${res.expectedLineCount} | gstin=${res.vendorGstinMatched} | gt=${res.grandTotalMatched} | arith=${res.hasArithmeticMismatch} | pg=${res.promptGuardBlocked} | wall=${res.wallClockMs}ms`
     );
   }
 
@@ -537,8 +666,22 @@ async function main() {
     byAttackFamily,
   };
 
+  const samplingProtocol =
+    mode === "heldout"
+      ? `Disjoint seeded sample (${synItems.length} synthetic idx>=5 + ${regItems.length} regional idx>=5, seed=${seed}, excluding all baseline & diagnostic indices)`
+      : "15 evenly spaced synthetic rows (Math.floor(i*2000/15)), 10 evenly spaced regional rows (Math.floor(i*40/10)), plus all 24 injection rows (inj_000..inj_023)";
+
+  const runIdPrefix =
+    mode === "heldout"
+      ? "KC-EXT-HELDOUT"
+      : mode === "dev-rerun"
+        ? "KC-EXT-DEV"
+        : "KC-EXT";
+
   const report = {
-    runId: `KC-EXT-${Date.now()}`,
+    runId: `${runIdPrefix}-${Date.now()}`,
+    mode,
+    seed,
     executedAtIso: new Date().toISOString(),
     targetBaseUrl: baseUrl,
     targetCodeCommit,
@@ -546,8 +689,7 @@ async function main() {
       dataset: DATASET_ID,
       license: DATASET_LICENSE,
       datasetCommit: DATASET_COMMIT,
-      samplingProtocol:
-        "15 evenly spaced synthetic rows (Math.floor(i*2000/15)), 10 evenly spaced regional rows (Math.floor(i*40/10)), plus all 24 injection rows (inj_000..inj_023)",
+      samplingProtocol,
     },
     overallSummary,
     cleanSummary,
@@ -555,15 +697,15 @@ async function main() {
     results,
   };
 
-  fs.mkdirSync(path.dirname(OUT_SRC_PATH), { recursive: true });
-  fs.writeFileSync(OUT_SRC_PATH, JSON.stringify(report, null, 2), "utf8");
-  console.log("EXTERNAL_BENCHMARK_WRITTEN:", OUT_SRC_PATH);
+  fs.mkdirSync(path.dirname(srcPath), { recursive: true });
+  fs.writeFileSync(srcPath, JSON.stringify(report, null, 2), "utf8");
+  console.log("EXTERNAL_BENCHMARK_WRITTEN:", srcPath);
 
-  const stage4Dir = path.dirname(OUT_STAGE4_PATH);
+  const stage4Dir = path.dirname(stage4Path);
   if (process.env.STAGE4_OUT_PATH || fs.existsSync(stage4Dir)) {
     fs.mkdirSync(stage4Dir, { recursive: true });
-    fs.writeFileSync(OUT_STAGE4_PATH, JSON.stringify(report, null, 2), "utf8");
-    console.log("STAGE4_COPY_WRITTEN:", OUT_STAGE4_PATH);
+    fs.writeFileSync(stage4Path, JSON.stringify(report, null, 2), "utf8");
+    console.log("STAGE4_COPY_WRITTEN:", stage4Path);
   } else {
     console.log("STAGE4_COPY_SKIPPED: parent directory absent:", stage4Dir);
   }

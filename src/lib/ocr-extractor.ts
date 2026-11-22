@@ -158,12 +158,42 @@ function safeParsePaise(raw: string): bigint | null {
   }
 }
 
+const HEADER_TRIM_CHARS = new Set([
+  "\\",
+  "|",
+  "]",
+  "[",
+  "=",
+  ":",
+  "~",
+  "*",
+  "•",
+  "'",
+  "‘",
+  "’",
+  '"',
+  "“",
+  "”",
+]);
+
+function trimOuterChars(raw: string, extraSet: Set<string>): string {
+  let start = 0;
+  let end = raw.length;
+  while (start < end && (raw[start].trim() === "" || extraSet.has(raw[start]))) start += 1;
+  while (end > start && (raw[end - 1].trim() === "" || extraSet.has(raw[end - 1]))) end -= 1;
+  return raw.slice(start, end);
+}
+
+const SUMMARY_END_TRIM_CHARS = new Set(["=", ")", "]", "}"]);
+
+function trimEndChars(raw: string, extraSet: Set<string>): string {
+  let end = raw.length;
+  while (end > 0 && (raw[end - 1].trim() === "" || extraSet.has(raw[end - 1]))) end -= 1;
+  return raw.slice(0, end);
+}
+
 function cleanHeaderLine(raw: string): string {
-  return raw
-    .replace(/^[\s\\|\]\[=:~*•'‘’"“”]+/, "")
-    .replace(/[\s\\|\]\[=:~*•'‘’"“”]+$/, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return trimOuterChars(raw, HEADER_TRIM_CHARS).replace(/\s+/g, " ").trim();
 }
 
 function normalizeIsoDate(raw: string): string | null {
@@ -245,17 +275,44 @@ function buildInvoiceLine(params: {
   const gross = halfUpDiv(BigInt(qtyMilli) * params.unitRatePaise, 1000n);
   const taxable = params.declaredTaxablePaise ?? (gross > params.discountPaise ? gross - params.discountPaise : gross);
 
+  let effectiveConfidence = params.ocrConfidence;
   let gstPct = params.gstPct;
   if (gstPct === undefined) {
-    if (params.declaredLineTotalPaise !== undefined && taxable > 0n && params.declaredLineTotalPaise >= taxable) {
+    if (params.explicitSplitBps) {
+      gstPct =
+        (params.explicitSplitBps.cgstBps +
+          params.explicitSplitBps.sgstBps +
+          params.explicitSplitBps.igstBps) /
+        100;
+    } else if (
+      params.declaredLineTotalPaise !== undefined &&
+      taxable > 0n &&
+      params.declaredLineTotalPaise >= taxable
+    ) {
       const impliedTax = params.declaredLineTotalPaise - taxable;
       const rawPct = Number((impliedTax * 10000n) / taxable) / 100;
       const standardSlabs = [0, 3, 5, 12, 18, 28];
       const nearest = standardSlabs.find((s) => Math.abs(s - rawPct) <= 0.35);
       gstPct = nearest !== undefined ? nearest : Math.max(0, Math.round(rawPct * 100) / 100);
+    } else if (
+      (params.declaredCgstPaise ?? 0n) +
+        (params.declaredSgstPaise ?? 0n) +
+        (params.declaredIgstPaise ?? 0n) >
+        0n &&
+      taxable > 0n
+    ) {
+      const sumTax =
+        (params.declaredCgstPaise ?? 0n) +
+        (params.declaredSgstPaise ?? 0n) +
+        (params.declaredIgstPaise ?? 0n);
+      const rawPct = Number((sumTax * 10000n) / taxable) / 100;
+      const standardSlabs = [0, 3, 5, 12, 18, 28];
+      const nearest = standardSlabs.find((s) => Math.abs(s - rawPct) <= 0.35);
+      gstPct = nearest !== undefined ? nearest : Math.max(0, Math.round(rawPct * 100) / 100);
     } else {
-      const rule = lookupHsnRule(params.hsnCode);
-      gstPct = rule ? rule.igstBps / 100 : 5;
+      // Never fabricate statutory oracle rates when OCR omits both tax % and line total.
+      gstPct = 0;
+      effectiveConfidence = Math.min(effectiveConfidence, 0.78);
     }
   }
 
@@ -290,14 +347,14 @@ function buildInvoiceLine(params: {
     declaredSgstPaise: sgstPaise.toString(),
     declaredIgstPaise: igstPaise.toString(),
     declaredLineTotalPaise: declaredTotal.toString(),
-    ocrConfidence: Number(Math.max(0.1, Math.min(0.99, params.ocrConfidence)).toFixed(2)),
+    ocrConfidence: Number(Math.max(0.1, Math.min(0.99, effectiveConfidence)).toFixed(2)),
   };
 }
 
+const ROW_END_TRIM_CHARS = new Set(["=", "|", "\\", "[", "]", "{", "}"]);
+
 function tokenizeRowForParsing(rawRow: string, expectedRowNum: number): string[] {
-  let s = rawRow.trim();
-  // Strip noisy trailing table borders or OCR '=' artifacts
-  s = s.replace(/\s+[=|\\[\]{}]+$/g, "").trim();
+  let s = trimOuterChars(rawRow.trim(), ROW_END_TRIM_CHARS);
 
   // Handle Tesseract turning "3 |" into "31" right before product text
   const gluedSeqRe = new RegExp(`^${expectedRowNum}[1lI|]\\s+([A-Za-z].*)$`);
@@ -484,17 +541,32 @@ function parseRowTokens(
 ): ParsedRowDraft | null {
   if (tokens.length < 4) return null;
 
-  // Locate HSN anchor after at least one word in the description
+  // Locate the LAST qty + unit pair so pack sizes inside descriptions like "(500 g)" or
+  // trailing prices after qty/unit do not hijack HSN or unit anchoring.
+  let preUnitIdx = -1;
+  for (let i = 2; i < tokens.length; i += 1) {
+    if (normalizeUnit(tokens[i]) && parseFlexibleNumber(tokens[i - 1] ?? "") !== null) {
+      preUnitIdx = i;
+    }
+  }
+  const hsnScanLimit = preUnitIdx >= 2 ? preUnitIdx - 1 : tokens.length - 2;
+
+  // Locate HSN anchor after at least one word in the description and strictly before qty + unit
   let hsnIdx = -1;
   let hsnCode = "";
-  for (let i = 1; i < tokens.length - 2; i += 1) {
-    // A numeric token immediately before a unit token is quantity, not an HSN code
+  for (let i = 1; i < hsnScanLimit; i += 1) {
     if (normalizeUnit(tokens[i + 1] ?? "")) continue;
     const candidate = isHsnToken(tokens[i]);
     if (candidate) {
-      hsnIdx = i;
-      hsnCode = candidate;
-      if (lookupHsnRule(candidate)) break;
+      if (hsnIdx < 0) {
+        hsnIdx = i;
+        hsnCode = candidate;
+      }
+      if (lookupHsnRule(candidate)) {
+        hsnIdx = i;
+        hsnCode = candidate;
+        break;
+      }
     }
   }
 
@@ -870,6 +942,7 @@ export interface DeterministicOcrParseResult {
   vendorGstin: string;
   buyerName: string;
   buyerGstin: string;
+  gstinOcrAmbiguous: boolean;
   supplierStateCode: string;
   placeOfSupplyStateCode: string;
   invoiceNumber: string;
@@ -882,80 +955,98 @@ export interface DeterministicOcrParseResult {
   confidenceScore: number;
 }
 
-const GSTIN_TO_DIGIT: Readonly<Record<string, string>> = {
+const GSTIN_DIGIT_CONFUSABLES: Readonly<Record<string, string>> = {
   O: "0",
-  Q: "0",
-  D: "0",
   I: "1",
-  L: "1",
-  Z: "2",
   S: "5",
-  G: "6",
   B: "8",
 };
 
-const GSTIN_TO_ALPHA: Readonly<Record<string, string>> = {
+const GSTIN_ALPHA_CONFUSABLES: Readonly<Record<string, string>> = {
   "0": "O",
   "1": "I",
-  "2": "Z",
   "5": "S",
-  "6": "G",
   "8": "B",
 };
 
-function normalizeGstinSchemaPositions(token15: string): string {
+function applyNarrowSchemaConfusables(token15: string): { fixed: string; changedCount: number } {
   const chars = token15.split("");
+  let changedCount = 0;
   for (const idx of [0, 1, 7, 8, 9, 10]) {
-    if (chars[idx] && GSTIN_TO_DIGIT[chars[idx]]) {
-      chars[idx] = GSTIN_TO_DIGIT[chars[idx]];
+    const ch = chars[idx];
+    if (ch && GSTIN_DIGIT_CONFUSABLES[ch]) {
+      chars[idx] = GSTIN_DIGIT_CONFUSABLES[ch];
+      changedCount += 1;
     }
   }
   for (const idx of [2, 3, 4, 5, 6, 11]) {
-    if (chars[idx] && GSTIN_TO_ALPHA[chars[idx]]) {
-      chars[idx] = GSTIN_TO_ALPHA[chars[idx]];
+    const ch = chars[idx];
+    if (ch && GSTIN_ALPHA_CONFUSABLES[ch]) {
+      chars[idx] = GSTIN_ALPHA_CONFUSABLES[ch];
+      changedCount += 1;
     }
   }
+  // Index 13 is structurally fixed as literal 'Z' in Indian GSTINs; OCR often reads it as '2' or '7'.
   if (chars[13] === "2" || chars[13] === "7") {
     chars[13] = "Z";
+    changedCount += 1;
   }
-  // Never rewrite index [14] check character so genuine check-digit faults stay invalid_gstin.
-  return chars.join("");
+  // Never modify position [14] checksum so invalid check digits stay invalid_gstin.
+  return { fixed: chars.join(""), changedCount };
 }
 
-function repairOcrGstinToken(rawToken: string): string {
+function repairOcrGstinWithAudit(rawToken: string): { gstin: string; repaired: boolean } {
   const cand = rawToken.toUpperCase().replace(/[^0-9A-Z]/g, "");
   const strictSingle = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
   if (cand.length === 15) {
-    const schemaFixed = normalizeGstinSchemaPositions(cand);
-    if (strictSingle.test(schemaFixed)) return schemaFixed;
-    return /^[0-9]{2}[A-Z]{5}[0-9]{4}/.test(schemaFixed) ? schemaFixed : cand;
+    if (strictSingle.test(cand) && validateGstin(cand).valid) {
+      return { gstin: cand, repaired: false };
+    }
+    const { fixed, changedCount } = applyNarrowSchemaConfusables(cand);
+    if (changedCount > 0 && changedCount <= 2 && fixed !== cand && strictSingle.test(fixed)) {
+      if (validateGstin(fixed).valid) {
+        return { gstin: fixed, repaired: true };
+      }
+      return { gstin: fixed, repaired: false };
+    }
+    return { gstin: cand, repaired: false };
   }
 
-  // Tesseract can split glyphs near the entity/Z separator (e.g. 1Z -> 12Z, G1 -> G61)
+  // Tesseract can split glyphs near the entity/Z separator (e.g. 1Z -> 12Z)
   if (cand.length === 16) {
     const validCandidates = new Set<string>();
     for (const pos of [11, 12, 13]) {
-      const shortened = normalizeGstinSchemaPositions(cand.slice(0, pos) + cand.slice(pos + 1));
-      if (strictSingle.test(shortened) && validateGstin(shortened).valid) {
-        validCandidates.add(shortened);
+      const sliced = cand.slice(0, pos) + cand.slice(pos + 1);
+      if (strictSingle.test(sliced) && validateGstin(sliced).valid) {
+        validCandidates.add(sliced);
+        continue;
+      }
+      const { fixed, changedCount } = applyNarrowSchemaConfusables(sliced);
+      if (changedCount <= 2 && strictSingle.test(fixed) && validateGstin(fixed).valid) {
+        validCandidates.add(fixed);
       }
     }
     if (validCandidates.size === 1) {
-      return [...validCandidates][0];
+      return { gstin: [...validCandidates][0], repaired: true };
     }
   }
 
-  return "";
+  return { gstin: "", repaired: false };
 }
 
-export function extractGstins(lines: string[]): { vendorGstin: string; buyerGstin: string } {
+export function extractGstins(lines: string[]): {
+  vendorGstin: string;
+  buyerGstin: string;
+  gstinOcrAmbiguous: boolean;
+} {
   const strictRe = /\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z])\b/g;
   const labelRe = /\bG[@O0]?STIN\b\s*[:=\-;'"\s]*([0-9A-Z]{14,16})/i;
   const splitLabelRe = /\bG[@O0]?STIN\b\s*[:=\-;'"\s]*([0-9A-Z]{8,13})\s+([0-9A-Z]{2,7})\b/i;
   let section: "header" | "supplier" | "buyer" = "header";
   let vendorGstin = "";
   let buyerGstin = "";
+  let gstinOcrAmbiguous = false;
   const supplierCandidates: string[] = [];
   const buyerCandidates: string[] = [];
 
@@ -979,7 +1070,9 @@ export function extractGstins(lines: string[]): { vendorGstin: string; buyerGsti
 
       const foundInLine: string[] = [];
       for (const m of upper.matchAll(strictRe)) {
-        const normalized = repairOcrGstinToken(m[1]) || m[1];
+        const res = repairOcrGstinWithAudit(m[1]);
+        const normalized = res.gstin || m[1];
+        if (res.repaired) gstinOcrAmbiguous = true;
         if (!foundInLine.includes(normalized)) {
           foundInLine.push(normalized);
         }
@@ -987,18 +1080,20 @@ export function extractGstins(lines: string[]): { vendorGstin: string; buyerGsti
       if (foundInLine.length === 0) {
         const lm = labelRe.exec(upper);
         if (lm) {
-          const repaired = repairOcrGstinToken(lm[1]);
-          if (repaired.length === 15) {
-            foundInLine.push(repaired);
+          const res = repairOcrGstinWithAudit(lm[1]);
+          if (res.gstin.length === 15) {
+            if (res.repaired) gstinOcrAmbiguous = true;
+            foundInLine.push(res.gstin);
           }
         }
       }
       if (foundInLine.length === 0) {
         const sm = splitLabelRe.exec(upper);
         if (sm && sm[1].length + sm[2].length === 15) {
-          const repaired = repairOcrGstinToken(sm[1] + sm[2]);
-          if (repaired.length === 15 && /^[0-9]{2}[A-Z]{5}[0-9]{4}/.test(repaired)) {
-            foundInLine.push(repaired);
+          const res = repairOcrGstinWithAudit(sm[1] + sm[2]);
+          if (res.gstin.length === 15 && /^[0-9]{2}[A-Z]{5}[0-9]{4}/.test(res.gstin)) {
+            if (res.repaired) gstinOcrAmbiguous = true;
+            foundInLine.push(res.gstin);
           }
         }
       }
@@ -1029,7 +1124,7 @@ export function extractGstins(lines: string[]): { vendorGstin: string; buyerGsti
       supplierCandidates.find((g) => g !== vendorGstin) ||
       "";
   }
-  return { vendorGstin, buyerGstin };
+  return { vendorGstin, buyerGstin, gstinOcrAmbiguous };
 }
 
 function stripMergedInvoiceMetadata(raw: string): string {
@@ -1221,8 +1316,9 @@ export function parseOcrInvoiceText(
     subgroup?: SubgroupId;
   }
 ): DeterministicOcrParseResult {
-  const rawLines = scrubbedText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const { vendorGstin, buyerGstin } = extractGstins(rawLines);
+  const cappedText = scrubbedText.length > 65536 ? scrubbedText.slice(0, 65536) : scrubbedText;
+  const rawLines = cappedText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const { vendorGstin, buyerGstin, gstinOcrAmbiguous } = extractGstins(rawLines);
   const { vendorName, buyerName } = extractVendorAndBuyerNames(rawLines);
 
   let invoiceNumber = "";
@@ -1236,7 +1332,9 @@ export function parseOcrInvoiceText(
   let declaredCgstPaise = 0n;
   let declaredSgstPaise = 0n;
   let declaredIgstPaise = 0n;
-  let sawExplicitTaxSummary = false;
+  let sawCgstSummary = false;
+  let sawSgstSummary = false;
+  let sawIgstSummary = false;
 
   for (const line of rawLines) {
     if (!invoiceNumber) {
@@ -1297,27 +1395,27 @@ export function parseOcrInvoiceText(
     }
 
     if (/^(?:add\s*:\s*)?(?:cgst|cgs|cast|cest)\b/i.test(line) || /\badd\s*:\s*cgst\b/i.test(line)) {
-      const m = /([\d,]+(?:\.\d{1,2})?)\s*$/.exec(line.replace(/[=)\]}\s]+$/, ""));
+      const m = /([\d,]+(?:\.\d{1,2})?)\s*$/.exec(trimEndChars(line, SUMMARY_END_TRIM_CHARS));
       const p = m ? safeParsePaise(m[1]) : null;
       if (p !== null) {
         declaredCgstPaise = p;
-        sawExplicitTaxSummary = true;
+        sawCgstSummary = true;
       }
     }
     if (/^(?:add\s*:\s*)?(?:sgst|sgs|scst)\b/i.test(line) || /\badd\s*:\s*sgst\b/i.test(line)) {
-      const m = /([\d,]+(?:\.\d{1,2})?)\s*$/.exec(line.replace(/[=)\]}\s]+$/, ""));
+      const m = /([\d,]+(?:\.\d{1,2})?)\s*$/.exec(trimEndChars(line, SUMMARY_END_TRIM_CHARS));
       const p = m ? safeParsePaise(m[1]) : null;
       if (p !== null) {
         declaredSgstPaise = p;
-        sawExplicitTaxSummary = true;
+        sawSgstSummary = true;
       }
     }
     if (/^(?:add\s*:\s*)?(?:igst|[il1]gst|\(gst)\b/i.test(line) || /\badd\s*:\s*igst\b/i.test(line)) {
-      const m = /([\d,]+(?:\.\d{1,2})?)\s*$/.exec(line.replace(/[=)\]}\s]+$/, ""));
+      const m = /([\d,]+(?:\.\d{1,2})?)\s*$/.exec(trimEndChars(line, SUMMARY_END_TRIM_CHARS));
       const p = m ? safeParsePaise(m[1]) : null;
       if (p !== null) {
         declaredIgstPaise = p;
-        sawExplicitTaxSummary = true;
+        sawIgstSummary = true;
       }
     }
   }
@@ -1439,6 +1537,9 @@ export function parseOcrInvoiceText(
     );
   }
 
+  const sawCompleteIntraTaxSummary = sawCgstSummary && sawSgstSummary;
+  const sawCompleteInterTaxSummary = sawIgstSummary && !sawCgstSummary && !sawSgstSummary;
+  const sawExplicitTaxSummary = sawCompleteIntraTaxSummary || sawCompleteInterTaxSummary;
   const declaredTotalTaxPaise = sawExplicitTaxSummary
     ? declaredCgstPaise + declaredSgstPaise + declaredIgstPaise
     : null;
@@ -1460,6 +1561,7 @@ export function parseOcrInvoiceText(
     vendorGstin,
     buyerName,
     buyerGstin: buyerGstin || vendorGstin || "29BBBBB1111B2ZM",
+    gstinOcrAmbiguous,
     supplierStateCode: effSupplierState,
     placeOfSupplyStateCode: effPosState,
     invoiceNumber: invoiceNumber || `OCR/${Date.now().toString().slice(-4)}`,
@@ -1513,6 +1615,7 @@ function assembleInvoiceInput(
     invoiceNumber: parsed.invoiceNumber,
     invoiceDate: parsed.invoiceDate,
     receivedAtIso: new Date().toISOString(),
+    ...(parsed.gstinOcrAmbiguous ? { gstinOcrAmbiguous: true } : {}),
     roundOffPaise: parsed.roundOffPaise.toString(),
     declaredTaxableSubtotalPaise: taxableSubtotal.toString(),
     declaredTotalTaxPaise: totalTax.toString(),
@@ -1686,6 +1789,37 @@ interface GroqStructuredInvoicePayload {
   }>;
 }
 
+function extractGroundedNumericSet(scrubbedOcrText: string): Set<string> {
+  const out = new Set<string>();
+  const matches = scrubbedOcrText.match(/\d[\d,]*(?:\.\d{1,3})?/g) ?? [];
+  for (const raw of matches) {
+    const noComma = raw.replace(/,/g, "");
+    out.add(noComma);
+    const num = Number(noComma);
+    if (Number.isFinite(num)) {
+      out.add(String(num));
+      out.add(num.toFixed(2));
+    }
+    const paise = safeParsePaise(noComma);
+    if (paise !== null) {
+      out.add(paise.toString());
+    }
+  }
+  return out;
+}
+
+function isNumberGroundedInOcr(raw: unknown, ocrNums: Set<string>): boolean {
+  const s = String(raw ?? "").replace(/,/g, "").trim();
+  if (!s) return false;
+  if (ocrNums.has(s)) return true;
+  const num = Number(s);
+  if (Number.isFinite(num) && (ocrNums.has(String(num)) || ocrNums.has(num.toFixed(2)))) {
+    return true;
+  }
+  const p = safeParsePaise(s);
+  return p !== null && ocrNums.has(p.toString());
+}
+
 async function structureScrubbedOcrWithGroq(
   scrubbedOcrText: string,
   base: DeterministicOcrParseResult
@@ -1732,7 +1866,27 @@ async function structureScrubbedOcrWithGroq(
     const parsed = JSON.parse(rawJson) as GroqStructuredInvoicePayload;
     if (!Array.isArray(parsed.lines) || parsed.lines.length === 0) return null;
 
-    const vendorGstin = String(parsed.vendorGstin || base.vendorGstin || "").toUpperCase().trim();
+    const llmGuard = scanUntrustedInvoiceText([
+      { field: "llmVendorName", text: String(parsed.vendorName ?? "") },
+      { field: "llmBuyerName", text: String(parsed.buyerName ?? "") },
+      { field: "llmVendorGstin", text: String(parsed.vendorGstin ?? "") },
+      { field: "llmInvoiceNumber", text: String(parsed.invoiceNumber ?? "") },
+      ...parsed.lines.map((l, idx) => ({
+        field: `llmLine_${idx + 1}`,
+        text: `${String(l.description ?? "")} ${String(l.unit ?? "")} ${String(l.hsnCode ?? "")}`,
+      })),
+    ]);
+    if (llmGuard.blocked) return null;
+
+    const ocrNums = extractGroundedNumericSet(scrubbedOcrText);
+    const parsedVendorGstinRaw = String(parsed.vendorGstin || "").toUpperCase().trim();
+    const repairedLlmGstin = parsedVendorGstinRaw ? repairOcrGstinWithAudit(parsedVendorGstinRaw) : { gstin: "", repaired: false };
+    const keepBaseGstin = Boolean(base.vendorGstin && validateGstin(base.vendorGstin).valid);
+    const vendorGstin = keepBaseGstin
+      ? base.vendorGstin
+      : repairedLlmGstin.gstin || base.vendorGstin || "";
+    const gstinOcrAmbiguous = base.gstinOcrAmbiguous || (!keepBaseGstin && repairedLlmGstin.repaired);
+
     const supplierState = /^\d{2}/.test(vendorGstin) ? vendorGstin.slice(0, 2) : base.supplierStateCode;
     const isInterstate = Boolean(supplierState && base.placeOfSupplyStateCode && supplierState !== base.placeOfSupplyStateCode);
 
@@ -1742,6 +1896,17 @@ async function structureScrubbedOcrWithGroq(
       const rateStr = String(item.rate ?? "").trim();
       const ratePaise = safeParsePaise(rateStr);
       if (!Number.isFinite(qty) || qty <= 0 || ratePaise === null || ratePaise <= 0n) continue;
+      if (!isNumberGroundedInOcr(item.qty, ocrNums) || !isNumberGroundedInOcr(rateStr, ocrNums)) {
+        return null;
+      }
+
+      const rawLineTotal = item.lineTotal ?? item.total;
+      if (rawLineTotal !== undefined && !isNumberGroundedInOcr(rawLineTotal, ocrNums)) {
+        return null;
+      }
+      if (item.taxableValue !== undefined && !isNumberGroundedInOcr(item.taxableValue, ocrNums)) {
+        return null;
+      }
 
       const rawGstStr =
         item.gstPct !== undefined && item.gstPct !== null
@@ -1750,7 +1915,6 @@ async function structureScrubbedOcrWithGroq(
       const gstPctNum = rawGstStr !== "" ? Number(rawGstStr) : Number.NaN;
       const taxablePaise =
         item.taxableValue !== undefined ? safeParsePaise(String(item.taxableValue)) ?? undefined : undefined;
-      const rawLineTotal = item.lineTotal ?? item.total;
       const totalPaise = rawLineTotal !== undefined ? safeParsePaise(String(rawLineTotal)) ?? undefined : undefined;
       const hsnClean = String(item.hsnCode || "0000").replace(/\D/g, "").slice(0, 4) || "0000";
       const unitClean = normalizeUnit(String(item.unit || "pcs")) ?? "pcs";
@@ -1775,13 +1939,17 @@ async function structureScrubbedOcrWithGroq(
 
     if (structuredLines.length === 0) return null;
 
+    // Never allow LLM output to overwrite a deterministic grand total captured from OCR text.
     const grandTotalPaise =
-      parsed.declaredGrandTotal !== undefined
-        ? safeParsePaise(String(parsed.declaredGrandTotal)) ?? base.declaredGrandTotalPaise
-        : base.declaredGrandTotalPaise;
+      base.declaredGrandTotalPaise !== null
+        ? base.declaredGrandTotalPaise
+        : parsed.declaredGrandTotal !== undefined && isNumberGroundedInOcr(parsed.declaredGrandTotal, ocrNums)
+          ? safeParsePaise(String(parsed.declaredGrandTotal))
+          : null;
 
     return {
       ...base,
+      gstinOcrAmbiguous,
       vendorName: String(parsed.vendorName || base.vendorName).trim() || base.vendorName,
       vendorGstin: vendorGstin || base.vendorGstin,
       buyerName: String(parsed.buyerName || base.buyerName).trim() || base.buyerName,
@@ -1876,7 +2044,13 @@ export async function extractAndParseInvoiceImage(
   if (needsLlmAssist) {
     const llmResult = await structureScrubbedOcrWithGroq(scrubbed.scrubbedText, detParsed);
     if (llmResult && llmResult.lines.length >= detParsed.lines.length) {
-      finalParsed = llmResult;
+      finalParsed = {
+        ...llmResult,
+        lines: llmResult.lines.map((l) => ({
+          ...l,
+          ocrConfidence: Math.min(l.ocrConfidence, 0.84),
+        })),
+      };
       usedLlmStructurer = true;
     }
   }

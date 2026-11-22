@@ -31,11 +31,19 @@ interface GateItem {
   evidence: string;
 }
 
+interface TamperSimResult {
+  tamperedSeq: number;
+  description: string;
+  baselineValid?: boolean;
+  verification: ChainVerify;
+}
+
 interface Props {
   initialEvents: AuditLedgerEvent[];
   initialVerification: ChainVerify;
   initialBias: AutomationBiasReport;
   gates: readonly GateItem[];
+  initialConsentRecorded?: boolean;
 }
 
 export function GovernanceClient({
@@ -43,15 +51,12 @@ export function GovernanceClient({
   initialVerification,
   initialBias,
   gates,
+  initialConsentRecorded = false,
 }: Props) {
   const [events, setEvents] = useState<AuditLedgerEvent[]>(initialEvents);
   const [verification, setVerification] = useState<ChainVerify>(initialVerification);
   const [bias, setBias] = useState<AutomationBiasReport>(initialBias);
-  const [tamperReport, setTamperReport] = useState<{
-    tamperedSeq: number;
-    description: string;
-    verification: ChainVerify;
-  } | null>(null);
+  const [tamperReport, setTamperReport] = useState<TamperSimResult | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refreshLedger = async () => {
@@ -99,11 +104,41 @@ export function GovernanceClient({
     }
   };
 
-  const defaultTallyApproved = events.some(
-    (e) =>
-      e.invoiceId === "SCN-01-KIRANA-SHORT" &&
-      (e.decision === "approved_flag" || e.decision === "overridden_clean")
-  );
+  const defaultTallyApproved = (() => {
+    const matching = events.filter(
+      (e) => e.invoiceId === "SCN-01-KIRANA-SHORT" && e.tenantId === "store-ganesh-blr-01"
+    );
+    const latest = matching[matching.length - 1];
+    return Boolean(
+      verification.valid &&
+        latest &&
+        (latest.decision === "approved_flag" || latest.decision === "overridden_clean")
+    );
+  })();
+
+  const resolvedGates = gates.map((g) => {
+    if (g.gate.startsWith("Gate 2")) {
+      return initialConsentRecorded
+        ? { ...g, badgeText: "Passed (Consent Recorded)", badgeTone: "pill-success", isPass: true }
+        : { ...g, badgeText: "Consent Pending (/privacy)", badgeTone: "pill-warning", isPass: false };
+    }
+    if (g.gate.startsWith("Gate 3")) {
+      return { ...g, badgeText: "Passed (Lab Verified)", badgeTone: "pill-success", isPass: true };
+    }
+    if (g.gate.startsWith("Gate 4")) {
+      return {
+        ...g,
+        badgeText: "Author-Simulated; Owner Sign-Off Pending Pilot",
+        badgeTone: "pill-warning",
+        isPass: false,
+      };
+    }
+    if (g.status === "PASS") {
+      return { ...g, badgeText: "Passed", badgeTone: "pill-success", isPass: true };
+    }
+    return { ...g, badgeText: "Hold (Pending Pilot)", badgeTone: "pill-warning", isPass: false };
+  });
+  const passedGateCount = resolvedGates.filter((g) => g.isPass).length;
 
   return (
     <div className="space-y-5">
@@ -111,33 +146,34 @@ export function GovernanceClient({
         <div>
           <h1 className="type-page text-ink">ISO/IEC 42001 Governance & Audit Ledger</h1>
           <p className="type-body text-muted mt-0.5">
-            Append-only SHA-256 hash chain, Automation Bias Oversight Monitor, and 5-Gate Lifecycle Sign-Off Matrix.
+            Append-only tamper-evident SHA-256 hash chain, Automation Bias Oversight Monitor, and 5-Gate Lifecycle Sign-Off Matrix.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <a
             href="/api/export?format=audit-manifest"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle whitespace-nowrap"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 shrink-0" />
             ISO 42001 JSON Manifest
           </a>
           {defaultTallyApproved ? (
             <a
               href="/api/export?format=tally-xml&scenarioId=SCN-01-KIRANA-SHORT"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
+              title="Not import-verified against a live TallyPrime company; requires recorded owner approval"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle whitespace-nowrap"
             >
-              <Download className="w-3.5 h-3.5" />
-              Tally Sandbox XML
+              <Download className="w-3.5 h-3.5 shrink-0" />
+              Tally Purchase XML
             </a>
           ) : (
             <button
               type="button"
               disabled
-              title="Approve or override a review decision first to enable Tally Sandbox XML export"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line type-pill text-faint opacity-60 cursor-not-allowed"
+              title="Approve or override a review decision first to enable Tally Purchase XML export (not import-verified against live TallyPrime)"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line type-pill text-faint opacity-60 cursor-not-allowed whitespace-nowrap"
             >
-              <Lock className="w-3.5 h-3.5" />
+              <Lock className="w-3.5 h-3.5 shrink-0" />
               Tally XML (Approval Required)
             </button>
           )}
@@ -181,14 +217,18 @@ export function GovernanceClient({
             {(bias.medianDwellMs / 1000).toFixed(1)}s
           </div>
           <div className="type-meta text-muted mt-1">
-            Alert gate: n &gt;= 50, approval &gt; 95%, 0 &lt; dwell &lt; 3s
+            Alert gate: n &gt;= 50, approval &gt; 95%, 0 &lt;= median dwell &lt; 3s
           </div>
         </div>
 
         <div className="app-card p-4">
           <div className="type-kpi-label text-faint">Lifecycle Gates</div>
-          <div className="type-kpi-value numeral text-ink mt-1">4 / 5 Pass</div>
-          <div className="type-meta text-muted mt-1">Gate 5 Live Retail Pilot: Hold until launch</div>
+          <div className="type-kpi-value numeral text-ink mt-1">
+            {passedGateCount} / {resolvedGates.length} Pass
+          </div>
+          <div className="type-meta text-muted mt-1">
+            Gate 4 author-simulated; Gate 5 retail pilot on hold
+          </div>
         </div>
       </div>
 
@@ -198,7 +238,7 @@ export function GovernanceClient({
           <div className="flex items-center justify-between gap-2">
             <h2 className="type-section text-ink">Automation Bias Monitor (NeuraViz Ch. 8)</h2>
             <span
-              className={`type-pill px-2 py-0.5 rounded ${
+              className={`inline-flex items-center whitespace-nowrap shrink-0 type-pill px-2 py-0.5 rounded ${
                 bias.alertActive
                   ? "pill-danger"
                   : bias.thresholdMet
@@ -264,10 +304,17 @@ export function GovernanceClient({
                 {tamperReport.verification.errorReason}
               </div>
               <p className="type-meta">{tamperReport.description}</p>
+              {tamperReport.baselineValid === false ? (
+                <p className="type-meta font-semibold">
+                  Baseline disk chain already failed verification before simulation.
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="p-3 rounded-lg bg-subtle border border-line type-body text-muted">
-              Each ledger event hashes <span className="font-code">sha256(prevHash + &quot;\n&quot; + canonicalJson(eventWithoutEntryHash))</span>. Click &quot;Simulate Copy Tamper&quot; to test mid-chain modification detection in memory without mutating disk records.
+              Tamper-evident (unkeyed) SHA-256 chain: each ledger event hashes{" "}
+              <span className="font-code">sha256(prevHash + &quot;\n&quot; + canonicalJson(eventWithoutEntryHash))</span>.
+              Click &quot;Simulate Copy Tamper&quot; to test mid-chain modification detection in memory without mutating disk records.
             </div>
           )}
         </div>
@@ -275,8 +322,9 @@ export function GovernanceClient({
 
       {/* 5-Gate Lifecycle Sign-Off Matrix */}
       <div className="app-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-line">
+        <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-2">
           <h2 className="type-section text-ink">5-Gate AI Lifecycle Sign-Off Matrix</h2>
+          <span className="type-meta font-code text-faint sm:hidden whitespace-nowrap">Scroll -&gt;</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -289,7 +337,7 @@ export function GovernanceClient({
               </tr>
             </thead>
             <tbody>
-              {gates.map((g) => (
+              {resolvedGates.map((g) => (
                 <tr key={g.gate} className="border-b border-line last:border-b-0">
                   <td className="py-2.5 px-3 type-table-cell">
                     <div className="font-semibold text-ink">{g.gate}</div>
@@ -297,11 +345,9 @@ export function GovernanceClient({
                   </td>
                   <td className="py-2.5 px-3 type-table-cell whitespace-nowrap">
                     <span
-                      className={`type-pill px-2 py-0.5 rounded whitespace-nowrap ${
-                        g.status === "PASS" ? "pill-success" : "pill-warning"
-                      }`}
+                      className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${g.badgeTone}`}
                     >
-                      {g.status === "PASS" ? "Passed" : "Hold (Pending Pilot)"}
+                      {g.badgeText}
                     </span>
                   </td>
                   <td className="py-2.5 px-3 type-table-cell text-muted">{g.owner}</td>
@@ -317,7 +363,10 @@ export function GovernanceClient({
       <div className="app-card overflow-hidden">
         <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-2">
           <h2 className="type-section text-ink">Append-Only Audit Ledger (Recent Entries)</h2>
-          <span className="type-meta text-faint numeral">Showing latest {Math.min(15, events.length)} of {events.length}</span>
+          <div className="flex items-center gap-2">
+            <span className="type-meta font-code text-faint sm:hidden whitespace-nowrap">Scroll -&gt;</span>
+            <span className="type-meta text-faint numeral">Showing latest {Math.min(15, events.length)} of {events.length}</span>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -342,9 +391,9 @@ export function GovernanceClient({
                       </div>
                       <div className="type-meta text-faint">{evt.vendorName}</div>
                     </td>
-                    <td className="py-2.5 px-3 type-table-cell">
+                    <td className="py-2.5 px-3 type-table-cell whitespace-nowrap">
                       <span
-                        className={`type-pill px-2 py-0.5 rounded ${
+                        className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
                           evt.decision === "approved_flag"
                             ? "pill-cobalt"
                             : evt.decision === "overridden_clean" || evt.decision === "contested_appeal"
@@ -355,7 +404,7 @@ export function GovernanceClient({
                         {labelFor(DECISION_LABELS, evt.decision, "Recorded")}
                       </span>
                       {evt.overrideReason && (
-                        <div className="type-meta text-muted mt-1">{evt.overrideReason}</div>
+                        <div className="type-meta text-muted mt-1 whitespace-normal">{evt.overrideReason}</div>
                       )}
                     </td>
                     <td className="py-2.5 px-3 type-table-cell text-right numeral text-ink">

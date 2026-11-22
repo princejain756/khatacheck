@@ -24,30 +24,73 @@ import type { BenchmarkReport, E2eOcrAsrReport, ExternalHfReport } from "@/lib/t
 
 interface Props {
   initialReport: BenchmarkReport;
+  initialV2Report?: BenchmarkReport | null;
   initialE2eReport: E2eOcrAsrReport | null;
+  initialE2eV2Report?: E2eOcrAsrReport | null;
   initialExternalHfReport?: ExternalHfReport | null;
+  initialExternalHfHeldout?: ExternalHfReport | null;
+  initialExternalHfDevRerun?: ExternalHfReport | null;
+}
+
+const RED_TEAM_FAMILY_ORDER = [
+  "A_policy_override",
+  "B_boundary_escape",
+  "C_encoded_payload",
+  "D_unicode_numeric",
+  "E_pii_exfil",
+  "F_multilingual_override",
+] as const;
+
+function selectRepresentativeRedTeamLogs(
+  logs: BenchmarkReport["redTeam"]["sampleLogs"],
+  familyFilter: string
+) {
+  if (familyFilter !== "all") {
+    return logs.filter((item) => item.family === familyFilter);
+  }
+  const picked: BenchmarkReport["redTeam"]["sampleLogs"] = [];
+  for (const family of RED_TEAM_FAMILY_ORDER) {
+    const matches = logs.filter((item) => item.family === family).slice(0, 2);
+    picked.push(...matches);
+  }
+  if (picked.length > 0) return picked;
+  return logs.slice(0, 12);
 }
 
 export function BenchmarksClient({
   initialReport,
+  initialV2Report = null,
   initialE2eReport,
+  initialE2eV2Report = null,
   initialExternalHfReport = null,
+  initialExternalHfHeldout = null,
+  initialExternalHfDevRerun = null,
 }: Props) {
   const [report, setReport] = useState<BenchmarkReport>(initialReport);
+  const [v2Report, setV2Report] = useState<BenchmarkReport | null>(initialV2Report);
   const [e2eReport, setE2eReport] = useState<E2eOcrAsrReport | null>(initialE2eReport);
+  const [e2eV2Report, setE2eV2Report] = useState<E2eOcrAsrReport | null>(initialE2eV2Report);
   const [externalHfReport, setExternalHfReport] = useState<ExternalHfReport | null>(
     initialExternalHfReport
   );
+  const [externalHfHeldout, setExternalHfHeldout] = useState<ExternalHfReport | null>(
+    initialExternalHfHeldout
+  );
+  const [externalHfDevRerun, setExternalHfDevRerun] = useState<ExternalHfReport | null>(
+    initialExternalHfDevRerun
+  );
   const [running, setRunning] = useState(false);
   const [lastElapsedMs, setLastElapsedMs] = useState<number | null>(null);
+  const [cachedNote, setCachedNote] = useState<string | null>(null);
   const [familyFilter, setFamilyFilter] = useState<string>("all");
   const [e2eTab, setE2eTab] = useState<"images" | "audio">("images");
-  const [extTab, setExtTab] = useState<"breakdown" | "cases">("breakdown");
+  const [extTabs, setExtTabs] = useState<Record<string, "breakdown" | "cases">>({});
   const [runError, setRunError] = useState<string | null>(null);
 
   const rerunSuite = async () => {
     setRunning(true);
     setRunError(null);
+    setCachedNote(null);
     try {
       const resp = await fetch("/api/benchmarks", {
         method: "POST",
@@ -55,15 +98,22 @@ export function BenchmarksClient({
       });
       const data = await resp.json();
       if (!resp.ok) {
-        setRunError(data.error || "Failed to execute benchmark suite");
+        setRunError(data.error || "Failed to load benchmark suite");
         return;
       }
-      setReport(data.report);
+      if (data.report) setReport(data.report);
+      if (data.v2Report) setV2Report(data.v2Report);
       if (data.e2eOcrAsr) setE2eReport(data.e2eOcrAsr);
+      if (data.e2eOcrAsrV2) setE2eV2Report(data.e2eOcrAsrV2);
       if (data.externalHf) setExternalHfReport(data.externalHf);
-      setLastElapsedMs(data.totalElapsedMs);
+      if (data.externalHfHeldout) setExternalHfHeldout(data.externalHfHeldout);
+      if (data.externalHfDevRerun) setExternalHfDevRerun(data.externalHfDevRerun);
+      setLastElapsedMs(typeof data.totalElapsedMs === "number" ? data.totalElapsedMs : 0);
+      if (data.cached) {
+        setCachedNote("Served pinned immutable benchmark artifacts (cached: true).");
+      }
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : "Network error while running suite");
+      setRunError(err instanceof Error ? err.message : "Network error while loading suite");
     } finally {
       setRunning(false);
     }
@@ -72,8 +122,12 @@ export function BenchmarksClient({
   const downloadReport = () => {
     const payload = {
       ...report,
+      ...(v2Report ? { v2Report } : {}),
       ...(e2eReport ? { e2eOcrAsr: e2eReport } : {}),
+      ...(e2eV2Report ? { e2eOcrAsrV2: e2eV2Report } : {}),
       ...(externalHfReport ? { externalHf: externalHfReport } : {}),
+      ...(externalHfHeldout ? { externalHfHeldout } : {}),
+      ...(externalHfDevRerun ? { externalHfDevRerun } : {}),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json;charset=utf-8",
@@ -90,10 +144,13 @@ export function BenchmarksClient({
     ? `Pilot: Not Run (${report.latency.pilotProtocolStoreCount}-Store Protocol Ready)`
     : report.latency.pilotStatus;
 
-  const filteredLogs =
-    familyFilter === "all"
-      ? report.redTeam.sampleLogs
-      : report.redTeam.sampleLogs.filter((item) => item.family === familyFilter);
+  const redTeamSource =
+    v2Report && new Set(v2Report.redTeam.sampleLogs.map((l) => l.family)).size >= 6
+      ? v2Report
+      : report;
+
+  const representativeLogs = selectRepresentativeRedTeamLogs(redTeamSource.redTeam.sampleLogs, "all");
+  const filteredLogs = selectRepresentativeRedTeamLogs(redTeamSource.redTeam.sampleLogs, familyFilter);
 
   const sharpImageRows = e2eReport
     ? e2eReport.imageResults.filter((r) => r.expectedClarityPass)
@@ -245,7 +302,7 @@ export function BenchmarksClient({
               </>
             ) : null}
             . Live 10-store Bengaluru field pilot:{" "}
-            <span className="pill-warning type-pill px-2 py-0.5 rounded">
+            <span className="inline-flex items-center whitespace-nowrap pill-warning type-pill px-2 py-0.5 rounded">
               Not Run ({report.latency.pilotProtocolStoreCount}-Store Protocol Ready)
             </span>
             .
@@ -253,7 +310,8 @@ export function BenchmarksClient({
         </div>
         <div className="type-meta font-code text-faint shrink-0">
           Run {report.runId}
-          {lastElapsedMs !== null ? ` · Re-executed in ${lastElapsedMs} ms` : ""}
+          {lastElapsedMs !== null ? ` · Refreshed in ${lastElapsedMs} ms` : ""}
+          {cachedNote ? ` · ${cachedNote}` : ""}
         </div>
       </div>
 
@@ -335,13 +393,16 @@ export function BenchmarksClient({
                 </span>
               </p>
             </div>
-            <span
-              className={`type-pill px-2 py-0.5 rounded ${
-                report.fairness.fairnessGatePassed ? "pill-success" : "pill-danger"
-              }`}
-            >
-              Gap &lt;= {report.fairness.launchGateThresholdPct} pp Enforced
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="type-meta font-code text-faint sm:hidden whitespace-nowrap">Scroll -&gt;</span>
+              <span
+                className={`inline-flex items-center whitespace-nowrap shrink-0 type-pill px-2 py-0.5 rounded ${
+                  report.fairness.fairnessGatePassed ? "pill-success" : "pill-danger"
+                }`}
+              >
+                Gap &lt;= {report.fairness.launchGateThresholdPct} pp Enforced
+              </span>
+            </div>
           </div>
 
           <div className="overflow-x-auto rounded-lg border border-line">
@@ -734,343 +795,396 @@ export function BenchmarksClient({
         </div>
       ) : null}
 
-      {/* Independent Third-Party Sampled Benchmark (Divya52/indian-gst-invoices, CC BY 4.0) */}
-      {externalHfReport ? (
-        <div className="app-card p-4 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      {/* Third-Party Dataset Benchmarks (Self-Administered: Pinned Baseline, Held-Out 50, Dev Rerun) */}
+      {[
+        externalHfReport
+          ? {
+              key: "baseline",
+              heading: `Third-Party Dataset Benchmark (Self-Administered: ${externalHfReport.attribution.dataset}, ${externalHfReport.attribution.license}, commit ${externalHfReport.attribution.datasetCommit.slice(0, 8)}, ${externalHfReport.overallSummary.totalCases} Sampled Bills)`,
+              notePrefix: "General layout and guard upgrades informed by a 5-row diagnostic probe; zero per-row hardcoding",
+              data: externalHfReport,
+            }
+          : null,
+        externalHfHeldout
+          ? {
+              key: "heldout",
+              heading: `Third-Party Dataset Benchmark: 50-Bill Held-Out Divya52 Sample (${externalHfHeldout.overallSummary.totalCases} Disjoint Bills, Seed 20261123)`,
+              notePrefix: "Strictly disjoint held-out sample run on hardened v2 pipeline",
+              data: externalHfHeldout,
+            }
+          : null,
+        externalHfDevRerun
+          ? {
+              key: "dev-rerun",
+              heading: `Third-Party Dataset Benchmark: Dev Rerun (Post-Error-Analysis, Non-Headline, ${externalHfDevRerun.overallSummary.totalCases} Bills)`,
+              notePrefix: "Iterative dev rerun on baseline rows after M10/M12 fixes (non-headline)",
+              data: externalHfDevRerun,
+            }
+          : null,
+      ]
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+        .map(({ key, heading, notePrefix, data }) => {
+          const activeTab = extTabs[key] ?? "breakdown";
+          const degClean = data.cleanSummary.byDegradationLevel.clean;
+          const degScan = data.cleanSummary.byDegradationLevel.scan;
+          const degPhoto = data.cleanSummary.byDegradationLevel.photo;
+          const cleanRows = data.results.filter((r) => r.attack === null);
+          const photoCleanRows = cleanRows.filter((r) => r.level === "photo");
+          const photoFullyCorrect = photoCleanRows.filter(
+            (r) =>
+              r.grandTotalMatched &&
+              r.vendorGstinMatched &&
+              r.extractedLineCount >= r.expectedLineCount &&
+              !r.hasArithmeticMismatch
+          ).length;
+          const captureGapPp = Number(
+            ((degClean?.grandTotalExactMatchPct ?? 0) - (degPhoto?.grandTotalExactMatchPct ?? 0)).toFixed(1)
+          );
+          const missedAttacks = data.results.filter((r) => r.attack !== null && r.attackDefeated === false);
+          const lowContrastRows = data.results.filter((r) => r.attackStyle === "low_contrast");
+          const lowContrastOcrDetected = lowContrastRows.filter((r) => r.extractedLineCount > 0).length;
+
+          return (
+            <div key={key} className="app-card p-4 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                <div className="min-w-0">
+                  <h2 className="type-section text-ink flex items-start gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-cobalt shrink-0 mt-0.5" />
+                    <span>{heading}</span>
+                  </h2>
+                  <p className="type-meta text-muted mt-0.5">
+                    Live HTTPS round-trip against{" "}
+                    <span className="font-code text-ink">{data.targetBaseUrl}</span> · commit{" "}
+                    <span className="font-code text-ink">{data.targetCodeCommit.slice(0, 7)}</span> ·{" "}
+                    <span className="font-code">{data.runId}</span> ·{" "}
+                    {data.overallSummary.enginesObserved.join(", ")} · {notePrefix}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <span
+                    className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                      data.cleanSummary.promptGuardFalsePositiveCount === 0
+                        ? "pill-success"
+                        : "pill-danger"
+                    }`}
+                  >
+                    {data.cleanSummary.promptGuardFalsePositiveCount}/{data.cleanSummary.totalCases}{" "}
+                    Prompt-Guard FP
+                  </span>
+                  <span className="inline-flex items-center whitespace-nowrap pill-warning type-pill px-2 py-0.5 rounded">
+                    10-Store Pilot: Not Run (Gate 5 Hold)
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                <div className="rounded-lg border border-line bg-subtle/60 p-3">
+                  <div className="type-kpi-label text-faint">
+                    Clean Grand Totals ({data.cleanSummary.totalCases} Clean Bills)
+                  </div>
+                  <div className="type-section numeral text-ink mt-1">
+                    {data.cleanSummary.grandTotalExactMatchPct}% (
+                    {data.cleanSummary.grandTotalExactCount}/{data.cleanSummary.totalCases})
+                  </div>
+                  <div className="type-meta text-muted mt-0.5 leading-snug">
+                    Synth {data.cleanSummary.bySplit.synthetic?.grandTotalExactMatchPct ?? 0}% (
+                    {data.cleanSummary.bySplit.synthetic?.grandTotalExactCount ?? 0}/
+                    {data.cleanSummary.bySplit.synthetic?.totalCases ?? 0}) · Reg{" "}
+                    {data.cleanSummary.bySplit.regional?.grandTotalExactMatchPct ?? 0}% (
+                    {data.cleanSummary.bySplit.regional?.grandTotalExactCount ?? 0}/
+                    {data.cleanSummary.bySplit.regional?.totalCases ?? 0}) · GSTIN{" "}
+                    {data.cleanSummary.supplierGstinMatchedCount}/{data.cleanSummary.totalCases} (
+                    {data.cleanSummary.supplierGstinExactMatchPct}%) ·{" "}
+                    {data.cleanSummary.cleanArithmeticFpCount}/{data.cleanSummary.totalCases} (
+                    {data.cleanSummary.cleanArithmeticFpRatePct}%) Arith FP
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-line bg-subtle/60 p-3">
+                  <div className="type-kpi-label text-faint">Clean by Capture Quality</div>
+                  <div className="type-section numeral text-ink mt-1">
+                    Digital {degClean?.grandTotalExactCount ?? 0}/{degClean?.totalCases ?? 0} (
+                    {degClean?.grandTotalExactMatchPct ?? 0}% GT)
+                  </div>
+                  <div className="type-meta text-muted mt-0.5 leading-snug">
+                    Scan ({degScan?.totalCases ?? 0}): {degScan?.grandTotalExactCount ?? 0}/
+                    {degScan?.totalCases ?? 0} ({degScan?.grandTotalExactMatchPct ?? 0}% GT) · Noisy Photo (
+                    {degPhoto?.totalCases ?? 0}): {degPhoto?.grandTotalExactCount ?? 0}/
+                    {degPhoto?.totalCases ?? 0} ({degPhoto?.grandTotalExactMatchPct ?? 0}% GT;{" "}
+                    {photoFullyCorrect}/{photoCleanRows.length} noisy photos fully correct)
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-line bg-subtle/60 p-3">
+                  <div className="type-kpi-label text-faint">Capture Gap &amp; Clarity Gate</div>
+                  <div className="type-section numeral text-ink mt-1">
+                    {captureGapPp} pp Capture Gap
+                  </div>
+                  <div className="type-meta text-muted mt-0.5 leading-snug">
+                    Rule-layer gap &lt;= {report.fairness.launchGateThresholdPct} pp on fixture tags;
+                    end-to-end capture gap {captureGapPp} pp (photo path assist-only) · Clarity gate passed{" "}
+                    {data.overallSummary.clarityPassedCount}/{data.overallSummary.totalCases} · API p50{" "}
+                    {data.overallSummary.apiWallClockP50Ms} ms / p95 {data.overallSummary.apiWallClockP95Ms} ms
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-line bg-subtle/60 p-3">
+                  <div className="type-kpi-label text-faint">
+                    Visual Injections ({data.injectionSummary.totalAttacks} Separate Attacks)
+                  </div>
+                  <div className="type-section numeral text-ink mt-1">
+                    {data.injectionSummary.attackDefeatedCount}/{data.injectionSummary.totalAttacks} (
+                    {data.injectionSummary.attackDefeatedRatePct}%) Defeated
+                  </div>
+                  <div className="type-meta text-muted mt-0.5 leading-snug">
+                    Preserved {data.injectionSummary.grandTotalPreservedCount}/
+                    {data.injectionSummary.totalAttacks} ({data.injectionSummary.grandTotalPreservedRatePct}%) ·
+                    Guard {data.injectionSummary.promptGuardDetectedCount}/{data.injectionSummary.totalAttacks}{" "}
+                    ({data.injectionSummary.promptGuardDetectedRatePct}%) · Misses ({missedAttacks.length}):{" "}
+                    {missedAttacks.length > 0
+                      ? missedAttacks.map((m) => `${m.caseId} (${m.attackStyle ?? "no_review"})`).join(", ")
+                      : "none"}
+                    {lowContrastRows.length > 0
+                      ? ` · low_contrast: ${lowContrastOcrDetected}/${lowContrastRows.length} ingested by OCR (pixels isolated from LLM)`
+                      : ""}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex rounded-lg border border-line bg-subtle p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setExtTabs((prev) => ({ ...prev, [key]: "breakdown" }))}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md type-pill cursor-pointer ${
+                      activeTab === "breakdown"
+                        ? "bg-surface text-ink shadow-xs"
+                        : "text-muted hover:text-ink"
+                    }`}
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                    Degradation &amp; Attack Breakdown
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExtTabs((prev) => ({ ...prev, [key]: "cases" }))}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md type-pill cursor-pointer ${
+                      activeTab === "cases"
+                        ? "bg-surface text-ink shadow-xs"
+                        : "text-muted hover:text-ink"
+                    }`}
+                  >
+                    <ScanText className="w-3.5 h-3.5 shrink-0" />
+                    All {data.results.length} Sampled Bills
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="type-meta font-code text-faint sm:hidden whitespace-nowrap">
+                    Scroll -&gt;
+                  </span>
+                  <span className="type-meta font-code text-faint">Executed {data.executedAtIso}</span>
+                </div>
+              </div>
+
+              {activeTab === "breakdown" ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="overflow-x-auto rounded-lg border border-line">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-line bg-subtle text-faint">
+                          <th className="py-2 px-3 type-table-head">Clean Bucket</th>
+                          <th className="py-2 px-3 type-table-head text-right">Bills</th>
+                          <th className="py-2 px-3 type-table-head text-right">Grand Total</th>
+                          <th className="py-2 px-3 type-table-head text-right">GSTIN</th>
+                          <th className="py-2 px-3 type-table-head text-right">Lines</th>
+                          <th className="py-2 px-3 type-table-head text-right">Arith FP</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-line">
+                        {[
+                          { label: "Clean Digital", row: degClean },
+                          { label: "Scanned Print", row: degScan },
+                          { label: "Noisy Photo", row: degPhoto },
+                          { label: "Synthetic Split", row: data.cleanSummary.bySplit.synthetic },
+                          { label: "Regional Split", row: data.cleanSummary.bySplit.regional },
+                        ]
+                          .filter((entry) => Boolean(entry.row))
+                          .map(({ label, row }) => (
+                            <tr key={label} className="hover:bg-subtle/60">
+                              <td className="py-2 px-3 type-table-cell text-ink font-medium whitespace-nowrap">
+                                {label}
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                                {row.totalCases}
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                                {row.grandTotalExactMatchPct}% ({row.grandTotalExactCount}/{row.totalCases})
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                                {row.supplierGstinExactMatchPct}%
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                                {row.lineCountRecallPct}%
+                              </td>
+                              <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                                {row.cleanArithmeticFpRatePct}%
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-lg border border-line">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-line bg-subtle text-faint">
+                          <th className="py-2 px-3 type-table-head">Injection Style</th>
+                          <th className="py-2 px-3 type-table-head text-right">Attacks</th>
+                          <th className="py-2 px-3 type-table-head text-right">Guard Detect</th>
+                          <th className="py-2 px-3 type-table-head text-right">Total Preserved</th>
+                          <th className="py-2 px-3 type-table-head text-right">Defeated</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-line">
+                        {data.injectionSummary.byAttackStyle.map((styleRow) => (
+                          <tr key={styleRow.attackStyle} className="hover:bg-subtle/60">
+                            <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                              {styleRow.attackStyle}
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
+                              {styleRow.total}
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                              {styleRow.promptGuardDetected}/{styleRow.total} ({styleRow.promptGuardDetectedPct}%)
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                              {styleRow.grandTotalPreserved}/{styleRow.total} ({styleRow.grandTotalPreservedPct}%)
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                                  styleRow.attackDefeated === styleRow.total
+                                    ? "pill-success"
+                                    : "pill-warning"
+                                }`}
+                              >
+                                {styleRow.attackDefeated}/{styleRow.total} ({styleRow.attackDefeatedPct}%)
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-line max-h-80 overflow-y-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="sticky top-0 bg-subtle z-10">
+                      <tr className="border-b border-line text-faint">
+                        <th className="py-2 px-3 type-table-head">Case ID</th>
+                        <th className="py-2 px-3 type-table-head">Split / Degradation</th>
+                        <th className="py-2 px-3 type-table-head text-right">Clarity</th>
+                        <th className="py-2 px-3 type-table-head text-right">Lines</th>
+                        <th className="py-2 px-3 type-table-head text-right">API Round-Trip</th>
+                        <th className="py-2 px-3 type-table-head text-right">Outcome</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-line">
+                      {data.results.map((row) => {
+                        const isInj = row.attack !== null;
+                        const pass = isInj
+                          ? Boolean(row.attackDefeated)
+                          : row.grandTotalMatched && !row.hasArithmeticMismatch;
+                        return (
+                          <tr key={row.caseId} className="hover:bg-subtle/60">
+                            <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                              {row.caseId}
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-muted whitespace-nowrap">
+                              {isInj
+                                ? `${row.attack} (${row.attackStyle ?? "unknown"})`
+                                : `${row.config} · ${row.level}`}
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                              {row.clarityScore}/255
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
+                              {row.extractedLineCount}/{row.expectedLineCount}
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
+                              {row.wallClockMs} ms
+                            </td>
+                            <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                                  pass ? "pill-success" : "pill-warning"
+                                }`}
+                              >
+                                {isInj
+                                  ? row.attackDefeated
+                                    ? row.promptGuardBlocked
+                                      ? "Blocked"
+                                      : "Math Safe"
+                                    : "Miss"
+                                  : row.grandTotalMatched
+                                    ? "GT Match"
+                                    : "Partial"}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+      {/* Additive Wave 2 GST 2.0 + Hardened E2E Reruns */}
+      {v2Report || e2eV2Report ? (
+        <div className="app-card p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="type-section text-ink flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-cobalt" />
-                Independent Third-Party Benchmark ({externalHfReport.attribution.dataset},{" "}
-                {externalHfReport.attribution.license}, commit{" "}
-                {externalHfReport.attribution.datasetCommit.slice(0, 8)},{" "}
-                {externalHfReport.overallSummary.totalCases} Sampled Bills)
+              <h2 className="type-section text-ink">
+                Additive Post-GST 2.0 &amp; Security Hardening Rerun (v2 Artifacts)
               </h2>
               <p className="type-meta text-muted mt-0.5">
-                Live HTTPS round-trip against{" "}
-                <span className="font-code text-ink">{externalHfReport.targetBaseUrl}</span> · commit{" "}
-                <span className="font-code text-ink">
-                  {externalHfReport.targetCodeCommit.slice(0, 7)}
-                </span>{" "}
-                · <span className="font-code">{externalHfReport.runId}</span> ·{" "}
-                {externalHfReport.overallSummary.enginesObserved.join(", ")} · general layout and
-                guard upgrades informed by an initial 5-row diagnostic probe; zero per-row hardcoding
+                Additive Wave 2 reruns against updated date-effective GST 2.0 schedule and hardened prompt/OCR guards (baseline pinned artifacts above remain untouched).
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`type-pill px-2 py-0.5 rounded ${
-                  externalHfReport.cleanSummary.promptGuardFalsePositiveCount === 0
-                    ? "pill-success"
-                    : "pill-danger"
-                }`}
-              >
-                {externalHfReport.cleanSummary.promptGuardFalsePositiveCount}/
-                {externalHfReport.cleanSummary.totalCases} Prompt-Guard FP
-              </span>
-              <span className="pill-warning type-pill px-2 py-0.5 rounded">
-                10-Store Pilot: Not Run (Gate 5 Hold)
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-            <div className="rounded-lg border border-line bg-subtle/60 p-3">
-              <div className="type-kpi-label text-faint">
-                Overall ({externalHfReport.overallSummary.totalCases} Sampled Bills)
-              </div>
-              <div className="type-section numeral text-ink mt-1">
-                {externalHfReport.overallSummary.grandTotalExactMatchPct}% (
-                {externalHfReport.overallSummary.grandTotalExactCount}/
-                {externalHfReport.overallSummary.totalCases}) Grand Total
-              </div>
-              <div className="type-meta text-muted mt-0.5 leading-snug">
-                Clarity {externalHfReport.overallSummary.clarityPassRatePct}% (
-                {externalHfReport.overallSummary.clarityPassedCount}/
-                {externalHfReport.overallSummary.totalCases}) · GSTIN{" "}
-                {externalHfReport.overallSummary.supplierGstinExactMatchPct}% (
-                {externalHfReport.overallSummary.supplierGstinMatchedCount}/
-                {externalHfReport.overallSummary.totalCases}) · Lines{" "}
-                {externalHfReport.overallSummary.lineCountRecallPct.toFixed(1)}% (
-                {externalHfReport.overallSummary.extractedLineCount}/
-                {externalHfReport.overallSummary.expectedLineCount}) · API p50{" "}
-                {externalHfReport.overallSummary.apiWallClockP50Ms} ms / p95{" "}
-                {externalHfReport.overallSummary.apiWallClockP95Ms} ms · Server OCR p50{" "}
-                {externalHfReport.overallSummary.serverOcrLatencyP50Ms} ms
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-line bg-subtle/60 p-3">
-              <div className="type-kpi-label text-faint">
-                Clean Split ({externalHfReport.cleanSummary.syntheticCases} Synth +{" "}
-                {externalHfReport.cleanSummary.regionalCases} Reg)
-              </div>
-              <div className="type-section numeral text-ink mt-1">
-                {externalHfReport.cleanSummary.grandTotalExactMatchPct}% (
-                {externalHfReport.cleanSummary.grandTotalExactCount}/
-                {externalHfReport.cleanSummary.totalCases}) Grand Total
-              </div>
-              <div className="type-meta text-muted mt-0.5 leading-snug">
-                Synth {externalHfReport.cleanSummary.bySplit.synthetic?.grandTotalExactMatchPct ?? 0}% (
-                {externalHfReport.cleanSummary.bySplit.synthetic?.grandTotalExactCount ?? 0}/
-                {externalHfReport.cleanSummary.bySplit.synthetic?.totalCases ?? 0}) · Reg{" "}
-                {externalHfReport.cleanSummary.bySplit.regional?.grandTotalExactMatchPct ?? 0}% (
-                {externalHfReport.cleanSummary.bySplit.regional?.grandTotalExactCount ?? 0}/
-                {externalHfReport.cleanSummary.bySplit.regional?.totalCases ?? 0}) ·{" "}
-                {externalHfReport.cleanSummary.promptGuardFalsePositiveCount}/
-                {externalHfReport.cleanSummary.totalCases} Guard FP ·{" "}
-                {externalHfReport.cleanSummary.cleanArithmeticFpCount}/
-                {externalHfReport.cleanSummary.totalCases} (
-                {externalHfReport.cleanSummary.cleanArithmeticFpRatePct}%) Arith FP vs printed math
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-line bg-subtle/60 p-3">
-              <div className="type-kpi-label text-faint">Clean by Degradation Level</div>
-              <div className="type-section numeral text-ink mt-1">
-                Digital {externalHfReport.cleanSummary.byDegradationLevel.clean?.grandTotalExactCount ?? 0}/
-                {externalHfReport.cleanSummary.byDegradationLevel.clean?.totalCases ?? 0} (
-                {externalHfReport.cleanSummary.byDegradationLevel.clean?.grandTotalExactMatchPct ?? 0}% GT)
-              </div>
-              <div className="type-meta text-muted mt-0.5 leading-snug">
-                Digital:{" "}
-                {externalHfReport.cleanSummary.byDegradationLevel.clean?.supplierGstinExactMatchPct ?? 0}%
-                GSTIN /{" "}
-                {externalHfReport.cleanSummary.byDegradationLevel.clean?.lineCountRecallPct ?? 0}% lines /{" "}
-                {externalHfReport.cleanSummary.byDegradationLevel.clean?.cleanArithmeticFpRatePct ?? 0}%
-                arith FP · Scan (
-                {externalHfReport.cleanSummary.byDegradationLevel.scan?.totalCases ?? 0}):{" "}
-                {externalHfReport.cleanSummary.byDegradationLevel.scan?.grandTotalExactMatchPct ?? 0}% GT /{" "}
-                {externalHfReport.cleanSummary.byDegradationLevel.scan?.lineCountRecallPct ?? 0}% lines /{" "}
-                {externalHfReport.cleanSummary.byDegradationLevel.scan?.cleanArithmeticFpRatePct ?? 0}%
-                arith FP · Noisy Photo (
-                {externalHfReport.cleanSummary.byDegradationLevel.photo?.totalCases ?? 0}):{" "}
-                {externalHfReport.cleanSummary.byDegradationLevel.photo?.grandTotalExactMatchPct ?? 0}% GT /{" "}
-                {externalHfReport.cleanSummary.byDegradationLevel.photo?.lineCountRecallPct ?? 0}% lines
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-line bg-subtle/60 p-3">
-              <div className="type-kpi-label text-faint">
-                Visual Injections ({externalHfReport.injectionSummary.totalAttacks} Attacks)
-              </div>
-              <div className="type-section numeral text-ink mt-1">
-                {externalHfReport.injectionSummary.grandTotalPreservedCount}/
-                {externalHfReport.injectionSummary.totalAttacks} (
-                {externalHfReport.injectionSummary.grandTotalPreservedRatePct}%) Preserved
-              </div>
-              <div className="type-meta text-muted mt-0.5 leading-snug">
-                Defeated {externalHfReport.injectionSummary.attackDefeatedCount}/
-                {externalHfReport.injectionSummary.totalAttacks} (
-                {externalHfReport.injectionSummary.attackDefeatedRatePct}%) · Guard{" "}
-                {externalHfReport.injectionSummary.promptGuardDetectedCount}/
-                {externalHfReport.injectionSummary.totalAttacks} (
-                {externalHfReport.injectionSummary.promptGuardDetectedRatePct}%):{" "}
-                {externalHfReport.injectionSummary.byAttackStyle
-                  .map(
-                    (s) =>
-                      `${s.attackStyle} ${s.promptGuardDetected}/${s.total} (${s.promptGuardDetectedPct}%)`
-                  )
-                  .join(" · ")}{" "}
-                (BigInt math isolates pixels from LLMs)
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="inline-flex rounded-lg border border-line bg-subtle p-0.5">
-              <button
-                type="button"
-                onClick={() => setExtTab("breakdown")}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md type-pill cursor-pointer ${
-                  extTab === "breakdown" ? "bg-surface text-ink shadow-xs" : "text-muted hover:text-ink"
-                }`}
-              >
-                <ShieldAlert className="w-3.5 h-3.5" />
-                Degradation &amp; Attack Breakdown
-              </button>
-              <button
-                type="button"
-                onClick={() => setExtTab("cases")}
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md type-pill cursor-pointer ${
-                  extTab === "cases" ? "bg-surface text-ink shadow-xs" : "text-muted hover:text-ink"
-                }`}
-              >
-                <ScanText className="w-3.5 h-3.5" />
-                All {externalHfReport.results.length} Sampled Bills
-              </button>
-            </div>
-            <span className="type-meta font-code text-faint">
-              Executed {externalHfReport.executedAtIso}
+            <span className="inline-flex items-center whitespace-nowrap pill-cobalt type-pill px-2 py-0.5 rounded">
+              Additive v2 Run
             </span>
           </div>
-
-          {extTab === "breakdown" ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <div className="overflow-x-auto rounded-lg border border-line">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-line bg-subtle text-faint">
-                      <th className="py-2 px-3 type-table-head">Clean Bucket</th>
-                      <th className="py-2 px-3 type-table-head text-right">Bills</th>
-                      <th className="py-2 px-3 type-table-head text-right">Grand Total</th>
-                      <th className="py-2 px-3 type-table-head text-right">GSTIN</th>
-                      <th className="py-2 px-3 type-table-head text-right">Lines</th>
-                      <th className="py-2 px-3 type-table-head text-right">Arith FP</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line">
-                    {[
-                      {
-                        label: "Clean Digital",
-                        row: externalHfReport.cleanSummary.byDegradationLevel.clean,
-                      },
-                      {
-                        label: "Scanned Print",
-                        row: externalHfReport.cleanSummary.byDegradationLevel.scan,
-                      },
-                      {
-                        label: "Noisy Photo",
-                        row: externalHfReport.cleanSummary.byDegradationLevel.photo,
-                      },
-                      {
-                        label: "Synthetic Split",
-                        row: externalHfReport.cleanSummary.bySplit.synthetic,
-                      },
-                      {
-                        label: "Regional Split",
-                        row: externalHfReport.cleanSummary.bySplit.regional,
-                      },
-                    ]
-                      .filter((entry) => Boolean(entry.row))
-                      .map(({ label, row }) => (
-                        <tr key={label} className="hover:bg-subtle/60">
-                          <td className="py-2 px-3 type-table-cell text-ink font-medium whitespace-nowrap">
-                            {label}
-                          </td>
-                          <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
-                            {row.totalCases}
-                          </td>
-                          <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
-                            {row.grandTotalExactMatchPct}% ({row.grandTotalExactCount}/{row.totalCases})
-                          </td>
-                          <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
-                            {row.supplierGstinExactMatchPct}%
-                          </td>
-                          <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
-                            {row.lineCountRecallPct}%
-                          </td>
-                          <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
-                            {row.cleanArithmeticFpRatePct}%
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {v2Report ? (
+              <div className="rounded-lg border border-line bg-subtle/60 p-3 space-y-1">
+                <div className="type-kpi-label text-faint">500-Bill Synthetic Suite (v2)</div>
+                <div className="type-section numeral text-ink">
+                  F1 {v2Report.overall.f1Pct}% · Math {v2Report.overall.deterministicMathAccuracyPct.toFixed(1)}% · Red-Team {v2Report.redTeam.blockedOrIsolated}/{v2Report.redTeam.totalAttacks}
+                </div>
+                <div className="type-meta font-code text-muted">
+                  Run {v2Report.runId} · {v2Report.ruleBundleVersion}
+                </div>
               </div>
-
-              <div className="overflow-x-auto rounded-lg border border-line">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-line bg-subtle text-faint">
-                      <th className="py-2 px-3 type-table-head">Injection Style</th>
-                      <th className="py-2 px-3 type-table-head text-right">Attacks</th>
-                      <th className="py-2 px-3 type-table-head text-right">Guard Detect</th>
-                      <th className="py-2 px-3 type-table-head text-right">Total Preserved</th>
-                      <th className="py-2 px-3 type-table-head text-right">Defeated</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line">
-                    {externalHfReport.injectionSummary.byAttackStyle.map((styleRow) => (
-                      <tr key={styleRow.attackStyle} className="hover:bg-subtle/60">
-                        <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
-                          {styleRow.attackStyle}
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-right numeral text-muted">
-                          {styleRow.total}
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
-                          {styleRow.promptGuardDetected}/{styleRow.total} ({styleRow.promptGuardDetectedPct}%)
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
-                          {styleRow.grandTotalPreserved}/{styleRow.total} (
-                          {styleRow.grandTotalPreservedPct}%)
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
-                          <span
-                            className={`type-pill px-2 py-0.5 rounded ${
-                              styleRow.attackDefeated === styleRow.total
-                                ? "pill-success"
-                                : "pill-warning"
-                            }`}
-                          >
-                            {styleRow.attackDefeated}/{styleRow.total} ({styleRow.attackDefeatedPct}%)
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            ) : null}
+            {e2eV2Report ? (
+              <div className="rounded-lg border border-line bg-subtle/60 p-3 space-y-1">
+                <div className="type-kpi-label text-faint">Executed Live E2E Lab Study (v2)</div>
+                <div className="type-section numeral text-ink">
+                  Images {e2eV2Report.imageSummary.totalCases} (p50 {e2eV2Report.imageSummary.wallClockP50Ms} ms) · Audio {e2eV2Report.audioSummary.totalClips} (p50 {e2eV2Report.audioSummary.totalE2eP50Ms} ms)
+                </div>
+                <div className="type-meta font-code text-muted">
+                  Run {e2eV2Report.runId}
+                  {e2eV2Report.targetCodeCommit ? ` · commit ${e2eV2Report.targetCodeCommit.slice(0, 7)}` : ""}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-line max-h-80 overflow-y-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 bg-subtle z-10">
-                  <tr className="border-b border-line text-faint">
-                    <th className="py-2 px-3 type-table-head">Case ID</th>
-                    <th className="py-2 px-3 type-table-head">Split / Degradation</th>
-                    <th className="py-2 px-3 type-table-head text-right">Clarity</th>
-                    <th className="py-2 px-3 type-table-head text-right">Lines</th>
-                    <th className="py-2 px-3 type-table-head text-right">API Round-Trip</th>
-                    <th className="py-2 px-3 type-table-head text-right">Outcome</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {externalHfReport.results.map((row) => {
-                    const isInj = row.attack !== null;
-                    const pass = isInj
-                      ? Boolean(row.attackDefeated)
-                      : row.grandTotalMatched && !row.hasArithmeticMismatch;
-                    return (
-                      <tr key={row.caseId} className="hover:bg-subtle/60">
-                        <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
-                          {row.caseId}
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-muted whitespace-nowrap">
-                          {isInj
-                            ? `${row.attack} (${row.attackStyle ?? "unknown"})`
-                            : `${row.config} · ${row.level}`}
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
-                          {row.clarityScore}/255
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink">
-                          {row.extractedLineCount}/{row.expectedLineCount}
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-right numeral text-ink whitespace-nowrap">
-                          {row.wallClockMs} ms
-                        </td>
-                        <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
-                          <span className={`type-pill px-2 py-0.5 rounded ${pass ? "pill-success" : "pill-warning"}`}>
-                            {isInj
-                              ? row.attackDefeated
-                                ? row.promptGuardBlocked
-                                  ? "Blocked"
-                                  : "Math Safe"
-                                : "Miss"
-                              : row.grandTotalMatched
-                                ? "GT Match"
-                                : "Partial"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -1079,17 +1193,20 @@ export function BenchmarksClient({
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <h2 className="type-section text-ink flex items-center gap-1.5">
-              <Lock className="w-4 h-4 text-cobalt" />
-              Adversarial Red-Team Evaluation (6 Attack Families · 50 Cases + Clean Controls)
+              <Lock className="w-4 h-4 text-cobalt shrink-0" />
+              Adversarial Red-Team Evaluation (6 Attack Families · {redTeamSource.redTeam.totalAttacks} Cases + Clean Controls)
             </h2>
             <p className="type-meta text-muted mt-0.5">
               Untrusted text notes and transcripts are screened separately from BigInt GST math, HSN slabs,
-              and export eligibility.
+              and export eligibility (up to 2 representative cases sampled per Family A..F).
             </p>
           </div>
-          <div className="type-meta font-code text-muted">
-            Canaries Scrubbed: {report.redTeam.piiZeroLeakPassed}/{report.redTeam.totalAttacks} · Engine Export False:{" "}
-            {report.redTeam.exportBlockedCount}/{report.redTeam.totalAttacks}
+          <div className="flex items-center gap-2">
+            <span className="type-meta font-code text-faint sm:hidden whitespace-nowrap">Scroll -&gt;</span>
+            <div className="type-meta font-code text-muted">
+              Canaries Scrubbed: {redTeamSource.redTeam.piiZeroLeakPassed}/{redTeamSource.redTeam.totalAttacks} · Engine Export False:{" "}
+              {redTeamSource.redTeam.exportBlockedCount}/{redTeamSource.redTeam.totalAttacks}
+            </div>
           </div>
         </div>
 
@@ -1104,9 +1221,9 @@ export function BenchmarksClient({
                 : "bg-surface text-muted border-line hover:text-ink"
             }`}
           >
-            All Sample Logs ({report.redTeam.sampleLogs.length})
+            All Sample Logs ({representativeLogs.length})
           </button>
-          {report.redTeam.byFamily.map((fam) => (
+          {redTeamSource.redTeam.byFamily.map((fam) => (
             <button
               key={fam.family}
               type="button"
@@ -1135,40 +1252,48 @@ export function BenchmarksClient({
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
-              {filteredLogs.map((log) => (
-                <tr key={log.caseId} className="hover:bg-subtle/60">
-                  <td className="py-2.5 px-3 type-table-cell font-code text-ink whitespace-nowrap">
-                    {log.caseId}
-                  </td>
-                  <td className="py-2.5 px-3 type-table-cell text-muted whitespace-nowrap">
-                    {labelFor(ATTACK_FAMILY_LABELS, log.family, log.family)}
-                  </td>
-                  <td className="py-2.5 px-3 type-table-cell font-code text-muted max-w-md truncate">
-                    {log.payloadPreview}
-                  </td>
-                  <td className="py-2.5 px-3 type-table-cell font-code text-ink whitespace-nowrap">
-                    {log.ruleMatched}
-                  </td>
-                  <td className="py-2.5 px-3 type-table-cell text-right whitespace-nowrap">
-                    <span
-                      className={`type-pill px-2 py-0.5 rounded ${
-                        log.quarantined ? "pill-success" : "pill-danger"
-                      }`}
-                    >
-                      {log.quarantined ? "Blocked" : "Missed"}
-                    </span>
-                  </td>
-                  <td className="py-2.5 px-3 type-table-cell text-right whitespace-nowrap">
-                    <span
-                      className={`type-pill px-2 py-0.5 rounded ${
-                        log.taxUnchanged ? "pill-success" : "pill-danger"
-                      }`}
-                    >
-                      {log.taxUnchanged ? "Intact" : "Drifted"}
-                    </span>
+              {filteredLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-3 px-3 type-meta text-muted text-center">
+                    No individual preview row recorded for this family in the truncated sample log; see verified family score in the filter chips above.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredLogs.map((log) => (
+                  <tr key={log.caseId} className="hover:bg-subtle/60">
+                    <td className="py-2.5 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                      {log.caseId}
+                    </td>
+                    <td className="py-2.5 px-3 type-table-cell text-muted whitespace-nowrap">
+                      {labelFor(ATTACK_FAMILY_LABELS, log.family, log.family)}
+                    </td>
+                    <td className="py-2.5 px-3 type-table-cell font-code text-muted max-w-md truncate">
+                      {log.payloadPreview}
+                    </td>
+                    <td className="py-2.5 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                      {log.ruleMatched}
+                    </td>
+                    <td className="py-2.5 px-3 type-table-cell text-right whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                          log.quarantined ? "pill-success" : "pill-danger"
+                        }`}
+                      >
+                        {log.quarantined ? "Blocked" : "Missed"}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 type-table-cell text-right whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                          log.taxUnchanged ? "pill-success" : "pill-danger"
+                        }`}
+                      >
+                        {log.taxUnchanged ? "Intact" : "Drifted"}
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

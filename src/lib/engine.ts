@@ -16,6 +16,12 @@ import type {
 import { parseVoiceRemarks } from "./voice-parser";
 
 export const CLARITY_MIN_THRESHOLD = 85;
+const MAX_ENGINE_TEXT_BYTES = 64 * 1024;
+
+function capEngineField(value: string | undefined): string | undefined {
+  if (!value) return value;
+  return value.length <= MAX_ENGINE_TEXT_BYTES ? value : value.slice(0, MAX_ENGINE_TEXT_BYTES);
+}
 
 export function computeBillSha256(invoice: InvoiceInput): string {
   const billCanonical = JSON.stringify({
@@ -69,24 +75,30 @@ export function verifyInvoicePipeline(
 
   const billSha256 = computeBillSha256(invoice);
 
+  const notesCapped = capEngineField(invoice.notesRaw);
+  const voiceCapped = capEngineField(invoice.voiceTranscriptRaw);
+
   // 1. Pre-flight DPDP PII Scrub BEFORE extraction/voice inference
   const notesScrub = enablePiiScrub
-    ? scrubPiiForModelEgress(invoice.notesRaw)
-    : { scrubbedText: invoice.notesRaw ?? "", redactionCount: 0, redactedKinds: [] };
+    ? scrubPiiForModelEgress(notesCapped)
+    : { scrubbedText: notesCapped ?? "", redactionCount: 0, redactedKinds: [] };
   const voiceScrub = enablePiiScrub
-    ? scrubPiiForModelEgress(invoice.voiceTranscriptRaw)
-    : { scrubbedText: invoice.voiceTranscriptRaw ?? "", redactionCount: 0, redactedKinds: [] };
+    ? scrubPiiForModelEgress(voiceCapped)
+    : { scrubbedText: voiceCapped ?? "", redactionCount: 0, redactedKinds: [] };
   const allRedactedKinds = [...new Set([...notesScrub.redactedKinds, ...voiceScrub.redactedKinds])];
   const totalRedactions = notesScrub.redactionCount + voiceScrub.redactionCount;
 
   // 2. Untrusted Input Prompt-Injection Guard (before downstream matching)
   const untrustedInputs: Array<{ field: string; text: string | undefined }> = [
-    { field: "notesRaw", text: invoice.notesRaw },
-    { field: "voiceTranscriptRaw", text: invoice.voiceTranscriptRaw },
-    { field: "invoiceNumber", text: invoice.invoiceNumber },
+    { field: "notesRaw", text: notesCapped },
+    { field: "voiceTranscriptRaw", text: voiceCapped },
+    { field: "invoiceNumber", text: capEngineField(invoice.invoiceNumber) },
+    { field: "vendorName", text: capEngineField(invoice.vendorName) },
+    { field: "buyerName", text: capEngineField(invoice.buyerName) },
+    { field: "challanNumber", text: capEngineField(invoice.challanNumber) },
     ...invoice.lines.map((l) => ({
       field: `line_${l.lineNumber}_description`,
-      text: `${l.sku} ${l.description}`,
+      text: capEngineField(`${l.sku} ${l.description} ${l.unit}`),
     })),
   ];
   const guardResult = scanUntrustedInvoiceText(untrustedInputs);
@@ -131,9 +143,11 @@ export function verifyInvoicePipeline(
       voiceMatches: [],
       lines: [],
       faults: [clarityFault],
+      secondaryFaults: [],
       totalVarianceAtRiskPaise: "0",
       expectedGrandTotalPaise: invoice.declaredGrandTotalPaise,
       declaredGrandTotalPaise: invoice.declaredGrandTotalPaise,
+      gstinOcrAmbiguous: Boolean(invoice.gstinOcrAmbiguous),
       exportEligible: false,
       recommendedAction: "retake_required",
     };
@@ -143,8 +157,10 @@ export function verifyInvoicePipeline(
   const det = verifyInvoiceDeterministic(invoice, vendorHistory, priorBills);
   const faults: DetectedFault[] = [...det.faults];
 
-  // 5. Bilingual Hinglish / Regional Voice Receiving Reconciliation
-  const voiceHits = parseVoiceRemarks(voiceScrub.scrubbedText, invoice.lines);
+  // 5. Bilingual Hinglish / Regional Voice Receiving Reconciliation (quarantined if prompt guard tripped)
+  const voiceHits = guardResult.blocked
+    ? []
+    : parseVoiceRemarks(voiceScrub.scrubbedText, invoice.lines);
   let nextSeq = faults.length + 1;
   for (const vh of voiceHits) {
     if (vh.kind === "shortage" || vh.kind === "rate_jump") {
@@ -173,7 +189,7 @@ export function verifyInvoicePipeline(
   }
 
   // Record Prompt-Injection Guard Quarantine Fault (without skipping deterministic tax checks)
-  if (guardResult.blocked) {
+  if (guardResult.blocked && guardResult.findings.length > 0) {
     const first = guardResult.findings[0];
     faults.push({
       faultId: `FLT-${nextSeq++}`,
@@ -189,19 +205,24 @@ export function verifyInvoicePipeline(
     });
   }
 
-  // Sum unique line/bill variances without double-counting exact duplicate/GSTIN full-bill totals
+  // Sum unique rule/line variances without double-counting duplicate/GSTIN whole-bill totals
   let atRiskPaise = 0n;
-  const countedLines = new Set<string>();
-  const wholeBillFault = faults.find(
+  const wholeBillFaults = faults.filter(
     (f) => f.category === "duplicate_invoice" || f.category === "invalid_gstin"
   );
-  if (wholeBillFault) {
-    atRiskPaise = BigInt(wholeBillFault.variancePaise || "0");
+  if (wholeBillFaults.length > 0) {
+    let maxWhole = 0n;
+    for (const wf of wholeBillFaults) {
+      const v = BigInt(wf.variancePaise || "0");
+      if (v > maxWhole) maxWhole = v;
+    }
+    atRiskPaise = maxWhole;
   } else {
+    const countedKeys = new Set<string>();
     for (const f of faults) {
-      const key = `${f.category}:${f.lineNumber ?? "bill"}`;
-      if (!countedLines.has(key)) {
-        countedLines.add(key);
+      const key = `${f.ruleId}:${f.lineNumber ?? "bill"}`;
+      if (!countedKeys.has(key)) {
+        countedKeys.add(key);
         atRiskPaise += BigInt(f.variancePaise || "0");
       }
     }
@@ -212,10 +233,17 @@ export function verifyInvoicePipeline(
   const latencyMs = Number(endNs - startNs) / 1e6;
 
   const hasLowConfLine = det.lineResults.some((l) => l.needsManualReview);
-  const recommendedAction =
-    faults.length > 0 || hasLowConfLine
+  const hasUnmatchedVoice = voiceHits.some((vh) => vh.kind === "unmatched_manual");
+  const gstinOcrAmbiguous = Boolean(invoice.gstinOcrAmbiguous);
+  const needsHumanReview = hasLowConfLine || hasUnmatchedVoice || gstinOcrAmbiguous;
+  const autoCleanEligible =
+    faults.length === 0 && !guardResult.blocked && !needsHumanReview;
+  const recommendedAction: VerificationResult["recommendedAction"] =
+    faults.length > 0 || guardResult.blocked || hasLowConfLine
       ? "owner_confirmation_required"
-      : "clean_ready_for_approval";
+      : hasUnmatchedVoice || gstinOcrAmbiguous
+        ? "human_review_required"
+        : "clean_ready_for_approval";
 
   return {
     invoiceId: invoice.id,
@@ -239,10 +267,13 @@ export function verifyInvoicePipeline(
     voiceMatches: voiceHits,
     lines: det.lineResults,
     faults,
+    secondaryFaults: faults.length > 1 ? faults.slice(1) : [],
     totalVarianceAtRiskPaise: atRiskPaise.toString(),
     expectedGrandTotalPaise: det.expectedGrandTotalPaise,
     declaredGrandTotalPaise: invoice.declaredGrandTotalPaise,
-    exportEligible: faults.length === 0 && !guardResult.blocked && !hasLowConfLine,
+    gstScheduleVersion: det.gstScheduleVersion,
+    gstinOcrAmbiguous,
+    exportEligible: autoCleanEligible,
     recommendedAction,
   };
 }

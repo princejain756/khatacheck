@@ -39,6 +39,12 @@ const CANONICAL_UNITS: Record<string, string> = {
   peti: "peti",
   carton: "carton",
   cartons: "carton",
+  ctn: "carton",
+  ctns: "carton",
+  case: "case",
+  cases: "case",
+  nag: "pcs",
+  nags: "pcs",
   dabba: "dabba",
   dabbe: "dabba",
   bori: "bori",
@@ -135,6 +141,7 @@ const CANONICAL_UNITS: Record<string, string> = {
   tonnes: "ton",
   dozen: "dozen",
   dozens: "dozen",
+  doz: "dozen",
   dz: "dozen",
   pair: "pair",
   pairs: "pair",
@@ -171,9 +178,9 @@ export function canonicalizeVoiceUnit(raw: string | null | undefined): string | 
   return CANONICAL_UNITS[cleaned] ?? cleaned;
 }
 
-const SHORTAGE_CUES = /\b(?:kum|kam|short|shortage|missing|damaged?|broken|nahi\s+aaya|nhi\s+aaya|mili\s+nahi)\b/i;
+const SHORTAGE_CUES = /\b(?:kum|kam|short|shortage|missing|damaged?|broken|nahi\s+aay[aae]|nhi\s+aay[aae]|mili\s+nahi)\b/i;
 const NEGATION_CUES =
-  /\b(?:short\s+nahi|shortage\s+nahi|missing\s+nahi|nahi\s+short|no\s+shortage|all\s+received|poora\s+aaya|sab\s+theek|nothing\s+(?:is\s+|are\s+|was\s+|were\s+)?(?:short|shortage|missing|damaged?|broken|kum|kam)|(?:is\s+|are\s+|was\s+|were\s+)?not\s+(?:short|shortage|missing|damaged?|broken|kum|kam)|(?<!\bbill\s)(?<!\binv\s)(?<!\binvoice\s)no\s+(?:(?:any|more|further|single)\s+)?(?:[a-z]+\s+){0,2}?(?:short|shortage|missing|damaged?|broken|kum|kam))\b/i;
+  /\b(?:(?:short|shortage|missing|damaged?|broken|kum|kam)\s+nahi|nahi\s+short|no\s+shortage|all\s+received|poora\s+aaya|sab\s+theek|nothing\s+(?:is\s+|are\s+|was\s+|were\s+)?(?:short|shortage|missing|damaged?|broken|kum|kam)|(?:is\s+|are\s+|was\s+|were\s+)?not\s+(?:short|shortage|missing|damaged?|broken|kum|kam)|(?<!\bbill\s)(?<!\binv\s)(?<!\binvoice\s)no\s+(?:(?:any|more|further|single)\s+)?(?:[a-z]+\s+){0,2}?(?:short|shortage|missing|damaged?|broken|kum|kam))\b/i;
 
 const DEVANAGARI_DIGITS: Readonly<Record<string, string>> = {
   "०": "0",
@@ -319,9 +326,10 @@ export function parseVoiceRemarks(
   lines: InvoiceLineInput[]
 ): ParsedVoiceHit[] {
   if (!rawTranscript || !rawTranscript.trim()) return [];
-  const normalized = normalizeTranscriptText(rawTranscript);
+  const capped = rawTranscript.length > 65536 ? rawTranscript.slice(0, 65536) : rawTranscript;
+  const normalized = normalizeTranscriptText(capped);
   const clauses = normalized
-    .split(/(?:[,;\n]+|\.(?=\s|$)|\b(?:but|however|par|lekin|magar)\b)/i)
+    .split(/(?:[,;\n]+|\.(?=\s|$)|\b(?:but|however|lekin|magar)\b)/i)
     .map((s) => s.trim())
     .filter(Boolean);
 
@@ -343,7 +351,8 @@ export function parseVoiceRemarks(
       const matched = findBestMatchingLine(clause, lines);
       if (matched && newPaise > oldPaise) {
         const diffPerUnit = newPaise - oldPaise;
-        const totalDiff = halfUpDiv(BigInt(matched.qtyMilli) * diffPerUnit, 1000n);
+        const safeLineQty = BigInt(Math.max(0, Math.trunc(matched.qtyMilli)));
+        const totalDiff = halfUpDiv(safeLineQty * diffPerUnit, 1000n);
         hits.push({
           matchedLineNumber: matched.lineNumber,
           sku: matched.sku,
@@ -640,10 +649,10 @@ export function parseVoiceRemarks(
             });
             continue;
           }
-          const qtyMilli = BigInt(Math.round(foundQty * 1000));
-          const billedQtyMilli = BigInt(matched.qtyMilli);
+          const qtyMilli = BigInt(Math.max(0, Math.round(foundQty * 1000)));
+          const billedQtyMilli = BigInt(Math.max(0, Math.trunc(matched.qtyMilli)));
           const cappedQtyMilli = qtyMilli > billedQtyMilli ? billedQtyMilli : qtyMilli;
-          const ratePaise = BigInt(matched.unitRatePaise);
+          const ratePaise = BigInt(matched.unitRatePaise || "0");
           const baseShortage = halfUpDiv(cappedQtyMilli * ratePaise, 1000n);
           const totalRateBps = BigInt(
             (matched.declaredCgstBps || 0) + (matched.declaredSgstBps || 0) + (matched.declaredIgstBps || 0)
@@ -674,6 +683,26 @@ export function parseVoiceRemarks(
         }
       }
     }
+  }
+
+  // Route unmatched non-Latin / Devanagari speech to manual review rather than dropping silently
+  if (
+    hits.length === 0 &&
+    /\p{Script=Devanagari}|\p{Script=Kannada}|\p{Script=Tamil}|\p{Script=Telugu}|\p{Script=Bengali}|\p{Script=Gujarati}|\p{Script=Malayalam}|\p{Script=Gurmukhi}/u.test(
+      normalized
+    ) &&
+    !NEGATION_CUES.test(normalized)
+  ) {
+    hits.push({
+      matchedLineNumber: null,
+      sku: null,
+      kind: "unmatched_manual",
+      shortageQty: 0,
+      claimedRatePaise: null,
+      variancePaise: "0",
+      confirmationPrompt: `Non-Latin regional voice remarks detected (${normalized.slice(0, 72)}); verify quantities manually against invoice rows.`,
+      rawSpan: normalized.slice(0, 120),
+    });
   }
 
   return hits;

@@ -1,8 +1,16 @@
+import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { scrubPiiForModelEgress } from "./dpdp-privacy";
 import { verifyInvoicePipeline } from "./engine";
-import { HSN_SCHEDULE_60, ORACLE_PROFILE_LABEL, RULE_BUNDLE_VERSION, makeValidGstin } from "./gst-rules";
+import {
+  HSN_SCHEDULE_60_V2_GST2,
+  ORACLE_PROFILE_LABEL,
+  RULE_BUNDLE_VERSION,
+  lookupHsnRule,
+  makeValidGstin,
+} from "./gst-rules";
 import { halfUpDiv } from "./money";
 import type {
   BenchmarkReport,
@@ -109,7 +117,18 @@ const SUBGROUPS: readonly SubgroupId[] = [
   "handwritten_challan",
 ];
 
-const TAXABLE_HSN_POOL = HSN_SCHEDULE_60.filter((h) => h.taxTreatment === "taxable");
+const TAXABLE_HSN_POOL = HSN_SCHEDULE_60_V2_GST2.filter((h) => h.taxTreatment === "taxable");
+
+function resolveGitCommitSha(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
 
 function isoAddDays(baseIso: string, deltaDays: number): string {
   const t = Date.parse(`${baseIso}T00:00:00Z`) + deltaDays * 86400000;
@@ -179,14 +198,15 @@ export function generateBenchmarkFixtures(): {
         const qtyUnits = randInt(baseRng, 4, 20);
         const qtyMilli = qtyUnits * 1000;
         const ratePaise = BigInt(randInt(baseRng, 500, 50000));
+        const effectiveHsn = lookupHsnRule(hsn.hsnCode, invDate, ratePaise) ?? hsn;
         const gross = halfUpDiv(BigInt(qtyMilli) * ratePaise, 1000n);
         const discPct = li % 2 === 1 ? randInt(baseRng, 0, 10) : 0;
         const disc = (gross * BigInt(discPct)) / 100n;
         const taxable = gross - disc;
 
-        const cgstBps = interstate ? 0 : hsn.cgstBps;
-        const sgstBps = interstate ? 0 : hsn.sgstOrUtgstBps;
-        const igstBps = interstate ? hsn.igstBps : 0;
+        const cgstBps = interstate ? 0 : effectiveHsn.cgstBps;
+        const sgstBps = interstate ? 0 : effectiveHsn.sgstOrUtgstBps;
+        const igstBps = interstate ? effectiveHsn.igstBps : 0;
 
         const cgst = halfUpDiv(taxable * BigInt(cgstBps), 10000n);
         const sgst = halfUpDiv(taxable * BigInt(sgstBps), 10000n);
@@ -272,7 +292,7 @@ export function generateBenchmarkFixtures(): {
         const target = lines[targetIdx];
         expectedLineNumber = target.lineNumber;
         const origBps = target.declaredCgstBps + target.declaredSgstBps + target.declaredIgstBps;
-        const wrongBps = origBps === 1800 ? 1200 : 1800;
+        const wrongBps = origBps === 1800 ? 500 : 1800;
         const taxable = BigInt(target.declaredTaxablePaise);
         const wrongTax = halfUpDiv(taxable * BigInt(wrongBps), 10000n);
         if (interstate) {
@@ -448,7 +468,10 @@ export function generateBenchmarkFixtures(): {
   return { invoices, attacks };
 }
 
-export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): BenchmarkReport {
+export function runFullBenchmarkSuite(options?: {
+  writeDisk?: boolean;
+  outputVariant?: "v1" | "v2";
+}): BenchmarkReport {
   const { invoices, attacks } = generateBenchmarkFixtures();
 
   let truePositives = 0;
@@ -667,6 +690,7 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
   let rtExportBlocked = 0;
   let rtFullyPassed = 0;
   const rtByFam = new Map<string, { total: number; passed: number }>();
+  const sampleCountByFam = new Map<string, number>();
   const sampleLogs: BenchmarkReport["redTeam"]["sampleLogs"] = [];
 
   for (const atk of attacks) {
@@ -695,11 +719,15 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
     }
     rtByFam.set(atk.family, famRec);
 
-    if (sampleLogs.length < 12) {
+    const famSamples = sampleCountByFam.get(atk.family) ?? 0;
+    if (famSamples < 2) {
+      sampleCountByFam.set(atk.family, famSamples + 1);
+      const rawPreview = atk.mutatedInvoice.voiceTranscriptRaw || atk.mutatedInvoice.notesRaw || "";
+      const scrubbedPreview = scrubPiiForModelEgress(rawPreview).scrubbedText;
       sampleLogs.push({
         caseId: atk.caseId,
         family: atk.family,
-        payloadPreview: (atk.mutatedInvoice.voiceTranscriptRaw || atk.mutatedInvoice.notesRaw || "").slice(0, 88),
+        payloadPreview: scrubbedPreview.slice(0, 88),
         quarantined,
         taxUnchanged,
         ruleMatched: atkRes.promptGuardFindings[0]?.ruleId ?? "MATH-NEGATIVE-DISCOUNT-GUARD",
@@ -741,10 +769,11 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
     clarityCorrect === 40;
 
   const report: BenchmarkReport = {
-    runId: `KC-BENCH-${Date.now()}`,
+    runId: options?.outputVariant === "v2" ? `KC-BENCH-V2-${Date.now()}` : `KC-BENCH-${Date.now()}`,
     executedAtIso: new Date().toISOString(),
+    commitSha: resolveGitCommitSha(),
     seed: MASTER_SEED,
-    generatorVersion: "fixture-generator-v1",
+    generatorVersion: options?.outputVariant === "v2" ? "fixture-generator-v2" : "fixture-generator-v1",
     ruleBundleVersion: RULE_BUNDLE_VERSION,
     oracleProfile: ORACLE_PROFILE_LABEL,
     environment: {
@@ -827,11 +856,13 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
   };
 
   if (options?.writeDisk) {
+    const variant = options.outputVariant ?? "v1";
     const appDataDir = path.join(process.cwd(), "src", "data");
     fs.mkdirSync(appDataDir, { recursive: true });
-    fs.writeFileSync(path.join(appDataDir, "benchmark-results.json"), JSON.stringify(report, null, 2), "utf8");
+    const reportFilename = variant === "v2" ? "benchmark-results-v2.json" : "benchmark-results.json";
+    fs.writeFileSync(path.join(appDataDir, reportFilename), JSON.stringify(report, null, 2), "utf8");
 
-    const fixDir = path.join(process.cwd(), "benchmark", "fixtures", "v1");
+    const fixDir = path.join(process.cwd(), "benchmark", "fixtures", variant);
     fs.mkdirSync(fixDir, { recursive: true });
     const invJsonl = invoices.map((x) => JSON.stringify(x.invoice)).join("\n") + "\n";
     const lblJsonl =
@@ -850,7 +881,8 @@ export function runFullBenchmarkSuite(options?: { writeDisk?: boolean }): Benchm
       JSON.stringify(
         {
           seed: MASTER_SEED,
-          generatorVersion: "fixture-generator-v1",
+          commitSha: report.commitSha,
+          generatorVersion: report.generatorVersion,
           ruleBundleVersion: RULE_BUNDLE_VERSION,
           fileHashes: {
             invoicesSha256: sha(invJsonl),

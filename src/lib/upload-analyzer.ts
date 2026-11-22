@@ -9,27 +9,39 @@ import {
 } from "./ocr-extractor";
 import type { InvoiceInput, InvoiceLineInput } from "./types";
 
+const MAX_REGEX_INPUT_CHARS = 65536;
+
+function capRegexInput(raw: string): string {
+  return raw.length > MAX_REGEX_INPUT_CHARS ? raw.slice(0, MAX_REGEX_INPUT_CHARS) : raw;
+}
+
 /**
  * Pure TypeScript digital PDF ASCII/text-layer extractor + structured text/CSV/JSON bill parser
  * so custom uploads work reliably without external native binaries.
  */
 export function extractTextFromBuffer(buf: Buffer, filename: string): {
-  kind: "json" | "csv" | "pdf_text" | "text" | "image_requires_review";
+  kind: "json" | "csv" | "pdf_text" | "text" | "image_requires_review" | "unreadable_pdf";
   extractedText: string;
   clarityHint: number;
 } {
   const lower = filename.toLowerCase();
   if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp")) {
-    // Simple byte-entropy / size proxy for image uploads (never pretends OCR ran without adapter)
-    const clarityHint = buf.length < 25000 ? 62 : 175;
     return {
       kind: "image_requires_review",
       extractedText: "",
-      clarityHint,
+      clarityHint: 0,
     };
   }
   if (lower.endsWith(".pdf")) {
-    const latin = buf.toString("latin1");
+    const headerSlice = buf.subarray(0, Math.min(buf.length, 1024)).toString("latin1");
+    if (!headerSlice.includes("%PDF-")) {
+      return {
+        kind: "unreadable_pdf",
+        extractedText: "",
+        clarityHint: 0,
+      };
+    }
+    const latin = buf.subarray(0, Math.min(buf.length, 2 * 1024 * 1024)).toString("latin1");
     const tokens: string[] = [];
     const litRegex = /\(([^()]{2,200})\)\s*Tj/g;
     for (const m of latin.matchAll(litRegex)) {
@@ -37,13 +49,20 @@ export function extractTextFromBuffer(buf: Buffer, filename: string): {
       if (cleaned) tokens.push(cleaned);
     }
     const text = tokens.join("\n").trim();
+    if (text.length < 10) {
+      return {
+        kind: "unreadable_pdf",
+        extractedText: "",
+        clarityHint: 0,
+      };
+    }
     return {
       kind: "pdf_text",
-      extractedText: text,
-      clarityHint: text.length > 20 ? 210 : 70,
+      extractedText: capRegexInput(text),
+      clarityHint: 210,
     };
   }
-  const utf = buf.toString("utf8");
+  const utf = capRegexInput(buf.toString("utf8"));
   if (lower.endsWith(".json") || utf.trim().startsWith("{")) {
     return { kind: "json", extractedText: utf, clarityHint: 230 };
   }
@@ -61,7 +80,9 @@ export function parseCustomInvoiceText(
     fallbackVendorGstin?: string;
   }
 ): InvoiceInput {
-  const trimmed = rawText.trim();
+  const trimmed = capRegexInput(String(rawText ?? "")).trim();
+  const safeVoice =
+    options?.voiceTranscript !== undefined ? capRegexInput(options.voiceTranscript) : undefined;
   if (trimmed.startsWith("{")) {
     try {
       const parsed = JSON.parse(trimmed) as Partial<InvoiceInput>;
@@ -75,7 +96,7 @@ export function parseCustomInvoiceText(
             : `UPL-${Date.now()}`;
         return {
           id: safeJsonId,
-          tenantId: parsed.tenantId || "store-ganesh-blr-01",
+          tenantId: "store-ganesh-blr-01",
           vendorName: parsed.vendorName || "Uploaded Wholesale Supplier",
           vendorGstin: parsed.vendorGstin || "29AAAAA0000A1ZY",
           buyerName: parsed.buyerName || "Ganesh Kirana Stores",
@@ -92,8 +113,13 @@ export function parseCustomInvoiceText(
           declaredGrandTotalPaise: parsed.declaredGrandTotalPaise || "0",
           clarityScore: options?.clarityScore ?? parsed.clarityScore ?? 210,
           subgroup: parsed.subgroup || "printed_en",
-          voiceTranscriptRaw: options?.voiceTranscript || parsed.voiceTranscriptRaw,
-          notesRaw: parsed.notesRaw,
+          voiceTranscriptRaw:
+            safeVoice !== undefined
+              ? safeVoice
+              : typeof parsed.voiceTranscriptRaw === "string"
+                ? capRegexInput(parsed.voiceTranscriptRaw)
+                : undefined,
+          notesRaw: typeof parsed.notesRaw === "string" ? capRegexInput(parsed.notesRaw) : undefined,
           lines: parsed.lines,
         };
       }
@@ -111,7 +137,11 @@ export function parseCustomInvoiceText(
     extractedGstins.vendorGstin || options?.fallbackVendorGstin || defaultGstin;
   const buyerGstin = extractedGstins.buyerGstin || "29BBBBB1111B2ZM";
   const stateCode = vendorGstin.slice(0, 2);
-  const invNoMatch = /(?:invoice|bill)\s*(?:no|#|number)?[:\s-]+([A-Z0-9\/-]{3,24})/i.exec(trimmed);
+  const invNoMatch =
+    /(?:invoice|bill)(?:[ \t]{0,12}(?:no\.?|#|number))?[ \t]*[:=-][ \t]*([A-Z0-9\/-]{3,24})|(?:invoice|bill)[ \t]+(?:no\.?|#)[ \t]+([A-Z0-9\/-]{3,24})/i.exec(
+      trimmed
+    );
+  const matchedInvNo = invNoMatch ? (invNoMatch[1] || invNoMatch[2] || "").trim() : "";
 
   const lines: InvoiceLineInput[] = [];
   let idx = 1;
@@ -168,7 +198,7 @@ export function parseCustomInvoiceText(
   if (lines.length === 0) {
     // Try multi-column Indian GST parser before manual fallback
     const gstParsed = parseOcrInvoiceText(trimmed, {
-      voiceTranscript: options?.voiceTranscript,
+      voiceTranscript: safeVoice,
       clarityScore: options?.clarityScore,
     });
     if (gstParsed.lines.length > 0) {
@@ -206,7 +236,7 @@ export function parseCustomInvoiceText(
         declaredGrandTotalPaise: grandTotalVal.toString(),
         clarityScore: options?.clarityScore ?? 215,
         subgroup: "printed_en",
-        voiceTranscriptRaw: options?.voiceTranscript,
+        voiceTranscriptRaw: safeVoice,
         notesRaw: trimmed,
         lines: gstParsed.lines,
       };
@@ -245,7 +275,7 @@ export function parseCustomInvoiceText(
     buyerGstin,
     supplierStateCode: stateCode,
     placeOfSupplyStateCode: stateCode,
-    invoiceNumber: invNoMatch ? invNoMatch[1] : `UPL/${Date.now().toString().slice(-4)}`,
+    invoiceNumber: matchedInvNo || `UPL/${Date.now().toString().slice(-4)}`,
     invoiceDate: "2026-11-21",
     receivedAtIso: new Date().toISOString(),
     roundOffPaise: "0",
@@ -254,7 +284,7 @@ export function parseCustomInvoiceText(
     declaredGrandTotalPaise: (totalTaxable + totalTax).toString(),
     clarityScore: options?.clarityScore ?? 215,
     subgroup: "printed_en",
-    voiceTranscriptRaw: options?.voiceTranscript,
+    voiceTranscriptRaw: safeVoice,
     notesRaw: trimmed,
     lines,
   };
@@ -279,7 +309,40 @@ export async function analyzeUploadedBuffer(
   }
 
   const ex = extractTextFromBuffer(buf, filename);
-  const invoice = parseCustomInvoiceText(ex.extractedText || filename, {
+  if (ex.kind === "unreadable_pdf" || !ex.extractedText.trim()) {
+    const abstainedInvoice: InvoiceInput = {
+      id: `UPL-ABSTAIN-${Date.now()}`,
+      tenantId: "store-ganesh-blr-01",
+      vendorName: ex.kind === "unreadable_pdf" ? "Unreadable PDF Capture" : "Empty Upload Capture",
+      vendorGstin: "",
+      buyerName: "Ganesh Kirana Stores",
+      buyerGstin: "29BBBBB1111B2ZM",
+      supplierStateCode: "29",
+      placeOfSupplyStateCode: "29",
+      invoiceNumber: `RETAKE/${Date.now().toString().slice(-4)}`,
+      invoiceDate: new Date().toISOString().slice(0, 10),
+      receivedAtIso: new Date().toISOString(),
+      roundOffPaise: "0",
+      declaredTaxableSubtotalPaise: "0",
+      declaredTotalTaxPaise: "0",
+      declaredGrandTotalPaise: "0",
+      clarityScore: 0,
+      subgroup: "printed_en",
+      voiceTranscriptRaw:
+        options?.voiceTranscript !== undefined ? capRegexInput(options.voiceTranscript) : undefined,
+      notesRaw:
+        ex.kind === "unreadable_pdf"
+          ? "Unreadable or compressed PDF (no extractable uncompressed text stream). Upload a clear PNG, JPEG, WebP capture, or structured CSV/JSON."
+          : "Uploaded file contained no parseable invoice text.",
+      lines: [],
+    };
+    return {
+      extractKind: ex.kind === "unreadable_pdf" ? "unreadable_pdf" : ex.kind,
+      invoice: abstainedInvoice,
+    };
+  }
+
+  const invoice = parseCustomInvoiceText(ex.extractedText, {
     voiceTranscript: options?.voiceTranscript,
     clarityScore: ex.clarityHint,
   });

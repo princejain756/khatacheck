@@ -2,11 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { runFullBenchmarkSuite } from "../src/lib/benchmark-runner";
 
-const mode = process.argv[2] || "run";
-const report = runFullBenchmarkSuite({ writeDisk: true });
+const rawArgs = process.argv.slice(2);
+const isV2 =
+  rawArgs.includes("--v2") ||
+  rawArgs.includes("v2") ||
+  process.env.KHATACHECK_OUTPUT_VARIANT === "v2";
+const mode = rawArgs.find((a) => a === "generate" || a === "run") || "run";
+const outputVariant = isV2 ? "v2" : "v1";
+const report = runFullBenchmarkSuite({ writeDisk: true, outputVariant });
 
 if (mode === "run") {
-  const stage4Copy = "/Users/admin/Github/unstop-hackathons/neuraviz-2026/stage4/benchmark_results.json";
+  const stage4Filename = isV2 ? "benchmark_results_v2.json" : "benchmark_results.json";
+  const stage4Copy = `/Users/admin/Github/unstop-hackathons/neuraviz-2026/stage4/${stage4Filename}`;
   const stage4Dir = path.dirname(stage4Copy);
   if (fs.existsSync("/Users/admin/Github/unstop-hackathons/neuraviz-2026")) {
     fs.mkdirSync(stage4Dir, { recursive: true });

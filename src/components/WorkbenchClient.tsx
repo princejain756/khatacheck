@@ -175,6 +175,21 @@ export function WorkbenchClient({
     }
   };
 
+  const buildVoiceAnalyzePayload = (nextVoice: string) => {
+    const matchedScenario = scenarios.find((s) => s.id === invoice.id);
+    if (matchedScenario) {
+      return {
+        scenarioId: matchedScenario.id,
+        voiceTranscript: nextVoice,
+        enablePiiScrub,
+      };
+    }
+    return {
+      invoice: { ...invoice, voiceTranscriptRaw: nextVoice },
+      enablePiiScrub,
+    };
+  };
+
   const transcribeAudioFile = async (audioFile: File) => {
     setBusy(true);
     setStatusMsg(null);
@@ -188,16 +203,13 @@ export function WorkbenchClient({
       }
       const tr = trData as TranscribeResult;
       setAsrMeta(tr);
-      const nextVoice = tr.transcript || "";
+      const nextVoice = tr.scrubbedTranscript || tr.transcript || "";
       setVoiceInput(nextVoice);
 
       const analyzeResp = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoice: { ...invoice, voiceTranscriptRaw: nextVoice },
-          enablePiiScrub,
-        }),
+        body: JSON.stringify(buildVoiceAnalyzePayload(nextVoice)),
       });
       const analyzeData = await analyzeResp.json();
       if (!analyzeResp.ok) {
@@ -316,10 +328,7 @@ export function WorkbenchClient({
       const resp = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          invoice: { ...invoice, voiceTranscriptRaw: voiceInput },
-          enablePiiScrub,
-        }),
+        body: JSON.stringify(buildVoiceAnalyzePayload(voiceInput)),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Voice check failed");
@@ -338,6 +347,9 @@ export function WorkbenchClient({
     if (!file) return;
     setBusy(true);
     setStatusMsg(null);
+    setVoiceInput("");
+    setAsrMeta(null);
+    setActiveLineHighlight(null);
     const isImg = /\.(png|jpg|jpeg|webp)$/i.test(file.name) || file.type.startsWith("image/");
     if (isImg) {
       updateUploadedPreview(URL.createObjectURL(file));
@@ -347,12 +359,14 @@ export function WorkbenchClient({
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("voiceTranscript", voiceInput);
+      form.append("voiceTranscript", "");
       form.append("enablePiiScrub", String(enablePiiScrub));
       const resp = await fetch("/api/analyze", { method: "POST", body: form });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Upload inspection failed");
       setSelectedId("CUSTOM-UPLOAD");
+      setVoiceInput("");
+      setAsrMeta(null);
       setInvoice(data.invoice);
       setResult(data.verification);
       setOcrMeta(data.ocrMeta ?? null);
@@ -462,10 +476,11 @@ export function WorkbenchClient({
           {tallyApproved ? (
             <a
               href={`/api/export?format=tally-xml&scenarioId=${encodeURIComponent(invoice.id)}`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
+              title="Not import-verified against a live TallyPrime company; requires recorded owner approval"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle whitespace-nowrap"
             >
-              <Download className="w-3.5 h-3.5" />
-              Tally Sandbox XML
+              <Download className="w-3.5 h-3.5 shrink-0" />
+              Tally Purchase XML
             </a>
           ) : (
             <button
@@ -473,12 +488,12 @@ export function WorkbenchClient({
               disabled
               title={
                 isLedgerApproved && !isBundledScenario
-                  ? "Tally Sandbox XML export supports the 6 bundled scenarios; custom uploads are logged in the SHA-256 audit ledger"
-                  : "Record store owner approval below to enable Tally Sandbox XML export"
+                  ? "Tally Purchase XML export supports the bundled scenarios; custom uploads are logged in the SHA-256 audit ledger"
+                  : "Record store owner approval below to enable Tally Purchase XML export (not import-verified against live TallyPrime)"
               }
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line type-pill text-faint opacity-60 cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line type-pill text-faint opacity-60 cursor-not-allowed whitespace-nowrap"
             >
-              <Lock className="w-3.5 h-3.5" />
+              <Lock className="w-3.5 h-3.5 shrink-0" />
               {isLedgerApproved && !isBundledScenario
                 ? "Tally XML (Bundled Scenarios)"
                 : "Tally XML (Approval Required)"}
@@ -486,9 +501,9 @@ export function WorkbenchClient({
           )}
           <a
             href="/api/export?format=dispute-csv"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line-strong type-pill text-ink hover:bg-subtle whitespace-nowrap"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 shrink-0" />
             Dispute CSV
           </a>
         </div>
@@ -533,16 +548,24 @@ export function WorkbenchClient({
 
         <div className="app-card p-4">
           <div className="type-kpi-label text-faint">Governance & Privacy Gates</div>
-          <div className="flex items-center gap-2 mt-1.5">
-            <span className={`type-pill px-2 py-0.5 rounded ${result.promptGuardBlocked ? "pill-danger" : "pill-success"}`}>
+          <div className="flex flex-wrap items-center gap-2 mt-1.5">
+            <span
+              className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                result.promptGuardBlocked ? "pill-danger" : "pill-success"
+              }`}
+            >
               {result.promptGuardBlocked ? "Injection Quarantined" : "Guard Clear"}
             </span>
-            <span className="type-pill px-2 py-0.5 rounded pill-cobalt numeral">
+            <span className="inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded pill-cobalt numeral">
               {result.dpdpRedactionCount} PII Masked
             </span>
           </div>
           <div className="type-meta text-muted mt-1.5">
-            {result.gstinValid ? "GSTIN Mod-36 Valid" : "GSTIN Check Failed"}
+            {result.gstinOcrAmbiguous
+              ? "GSTIN OCR Ambiguous (Review)"
+              : result.gstinValid
+                ? "GSTIN Mod-36 Valid"
+                : "GSTIN Check Failed"}
           </div>
         </div>
       </div>
@@ -622,11 +645,27 @@ export function WorkbenchClient({
         {/* Left 5 Cols: Annotated Source Bill Crop Provenance + Voice / DPDP Controls */}
         <div className="lg:col-span-5 space-y-4">
           <div className="app-card p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="type-section text-ink">Source Evidence & Bounding Crops</h2>
-              <span className="type-pill px-2 py-0.5 rounded pill-neutral whitespace-nowrap shrink-0">
-                {labelFor(SUBGROUP_LABELS, invoice.subgroup, "Standard Bill")}
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(() => {
+                  const isGst2 = result.gstScheduleVersion
+                    ? result.gstScheduleVersion === "v2_gst2"
+                    : invoice.invoiceDate >= "2025-09-22";
+                  return (
+                    <span
+                      className={`inline-flex items-center type-pill px-2 py-0.5 rounded whitespace-nowrap shrink-0 ${
+                        isGst2 ? "pill-cobalt" : "pill-neutral"
+                      }`}
+                    >
+                      {isGst2 ? "v2 GST 2.0" : "v1 Pre-Sep-2025"}
+                    </span>
+                  );
+                })()}
+                <span className="inline-flex items-center type-pill px-2 py-0.5 rounded pill-neutral whitespace-nowrap shrink-0">
+                  {labelFor(SUBGROUP_LABELS, invoice.subgroup, "Standard Bill")}
+                </span>
+              </div>
             </div>
 
             {invoice.imageUrl ? (
@@ -740,15 +779,15 @@ export function WorkbenchClient({
                     <ScanText className="w-3.5 h-3.5 text-cobalt" />
                     OCR &amp; Clarity Telemetry
                   </span>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span
-                      className={`type-pill px-2 py-0.5 rounded ${
+                      className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
                         ocrMeta.clarityScore >= 85 ? "pill-success" : "pill-danger"
                       }`}
                     >
                       {ocrMeta.clarityScore >= 85 ? "Clarity >= 85 Pass" : "Below 85 Retake"}
                     </span>
-                    <span className="type-pill px-2 py-0.5 rounded pill-neutral font-code">
+                    <span className="inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded pill-neutral font-code">
                       {extractKind}
                     </span>
                   </div>
@@ -799,20 +838,23 @@ export function WorkbenchClient({
 
             {/* Hinglish Voice Reconciliation Interactive Input */}
             <div className="pt-2 border-t border-line space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <label htmlFor="voice-transcript" className="type-kpi-label text-ink flex items-center gap-1.5">
-                  <Mic className="w-3.5 h-3.5" />
+                  <Mic className="w-3.5 h-3.5 shrink-0" />
                   15s Bilingual Receiving Voice Note (Live ASR / Editable)
                 </label>
                 <button
                   type="button"
                   onClick={toggleScrub}
-                  className={`type-pill px-2 py-0.5 rounded cursor-pointer flex items-center gap-1 ${
+                  title="Display-only preview toggle. On-server DPDP PII scrubbing is mandatory and always enforced."
+                  className={`inline-flex items-center gap-1 whitespace-nowrap type-pill px-2 py-0.5 rounded cursor-pointer ${
                     enablePiiScrub ? "pill-success" : "pill-warning"
                   }`}
                 >
-                  <Lock className="w-3 h-3" />
-                  {enablePiiScrub ? "DPDP Scrub ON" : "DPDP Scrub OFF"}
+                  <Lock className="w-3 h-3 shrink-0" />
+                  {enablePiiScrub
+                    ? "Preview: Masked (Server Scrub ON)"
+                    : "Preview: Raw Local (Server Scrub ON)"}
                 </button>
               </div>
 
@@ -843,7 +885,7 @@ export function WorkbenchClient({
                 <input
                   ref={audioInputRef}
                   type="file"
-                  accept=".mp3,.wav,.m4a,.webm,.ogg,audio/*"
+                  accept=".mp3,.wav,.m4a,.webm,.ogg,.flac,audio/*"
                   onChange={(e) => {
                     const clip = e.target.files?.[0];
                     if (clip) void transcribeAudioFile(clip);
@@ -860,12 +902,16 @@ export function WorkbenchClient({
                 </label>
               </div>
 
+              <p className="type-meta text-faint">
+                Submitted voice audio clips are transcribed via Groq Whisper ASR; returned transcripts are DPDP-scrubbed on-server before invoice checks.
+              </p>
+
               {asrMeta && (
                 <div
                   data-testid="asr-telemetry"
                   className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-subtle px-2.5 py-1.5"
                 >
-                  <span className="type-pill px-2 py-0.5 rounded pill-cobalt font-code">
+                  <span className="inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded pill-cobalt font-code">
                     {asrMeta.model}
                   </span>
                   <span className="type-meta font-code numeral text-ink">
@@ -916,7 +962,7 @@ export function WorkbenchClient({
             <div className="flex items-center justify-between gap-2">
               <h2 className="type-section text-ink">Verification Findings & Evidence Trace</h2>
               <span
-                className={`type-pill px-2.5 py-0.5 rounded ${
+                className={`inline-flex items-center whitespace-nowrap type-pill px-2.5 py-0.5 rounded ${
                   result.abstainedClarity
                     ? "pill-warning"
                     : result.faults.length > 0
@@ -992,7 +1038,7 @@ export function WorkbenchClient({
               <div className="type-meta text-muted flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 shrink-0 text-cobalt" />
                 <span>
-                  Human accountability gate: every claim and Tally Sandbox XML export requires recorded store owner approval.
+                  Human accountability gate: every claim and Tally Purchase XML export (not import-verified) requires recorded store owner approval.
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -1040,9 +1086,12 @@ export function WorkbenchClient({
           {/* Line-by-Line Deterministic Accounting Table */}
           {result.lines.length > 0 && (
             <div className="app-card overflow-hidden">
-              <div className="px-4 py-3 border-b border-line flex items-center justify-between gap-2">
+              <div className="px-4 py-3 border-b border-line flex flex-wrap items-center justify-between gap-2">
                 <h3 className="type-section text-ink">Deterministic Paise Tax Ledger</h3>
-                <span className="type-meta text-faint">{result.oracleProfile}</span>
+                <div className="flex items-center gap-2">
+                  <span className="type-meta text-faint sm:hidden whitespace-nowrap">Scroll -&gt;</span>
+                  <span className="type-meta text-faint">{result.oracleProfile}</span>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
@@ -1089,9 +1138,9 @@ export function WorkbenchClient({
                           <td className="py-2.5 px-3 type-table-cell text-right numeral text-ink">
                             {formatPaiseINR(line.expectedLineTotalPaise)}
                           </td>
-                          <td className="py-2.5 px-3 type-table-cell text-right numeral">
+                          <td className="py-2.5 px-3 type-table-cell text-right numeral whitespace-nowrap">
                             <span
-                              className={`type-pill px-2 py-0.5 rounded ${
+                              className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
                                 deltaBig === 0n ? "pill-success" : "pill-danger"
                               }`}
                             >

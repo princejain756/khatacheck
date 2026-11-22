@@ -2,6 +2,7 @@ import { GovernanceClient } from "@/components/GovernanceClient";
 import {
   LIFECYCLE_GATES,
   computeAutomationBiasMonitor,
+  getConsentState,
   readLedgerWithIntegrity,
 } from "@/lib/governance-ledger";
 
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
 export default function GovernancePage() {
   const { events, verification } = readLedgerWithIntegrity();
   const bias = computeAutomationBiasMonitor(events);
+  const consent = getConsentState();
 
   return (
     <GovernanceClient
@@ -17,6 +19,7 @@ export default function GovernancePage() {
       initialVerification={verification}
       initialBias={bias}
       gates={LIFECYCLE_GATES}
+      initialConsentRecorded={consent.consented}
     />
   );
 }

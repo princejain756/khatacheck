@@ -71,7 +71,7 @@ export interface InvoiceInput {
   challanNumber?: string;
   invoiceDate: string; // YYYY-MM-DD
   receivedAtIso: string; // t0
-  isReverseCharge?: boolean;
+  gstinOcrAmbiguous?: boolean;
   roundOffPaise: string; // signed BigInt decimal string, max abs 50 paise when declared
   declaredTaxableSubtotalPaise: string;
   declaredTotalTaxPaise: string;
@@ -127,6 +127,7 @@ export interface LineVerificationResult {
   hsnCode: string;
   hsnMatchedRuleId: string | null;
   hsnDescription: string | null;
+  hsnUnverified?: boolean;
   expectedRateBps: number | null;
   declaredRateBps: number;
   expectedTaxablePaise: string;
@@ -180,11 +181,35 @@ export interface VerificationResult {
   }>;
   lines: LineVerificationResult[];
   faults: DetectedFault[];
+  secondaryFaults?: DetectedFault[];
   totalVarianceAtRiskPaise: string;
   expectedGrandTotalPaise: string;
   declaredGrandTotalPaise: string;
+  gstScheduleVersion?: "v1_pre_gst2" | "v2_gst2";
+  gstinOcrAmbiguous?: boolean;
   exportEligible: boolean;
-  recommendedAction: "retake_required" | "owner_confirmation_required" | "clean_ready_for_approval";
+  recommendedAction:
+    | "retake_required"
+    | "owner_confirmation_required"
+    | "human_review_required"
+    | "clean_ready_for_approval";
+}
+
+export interface ServerVerdictRecord {
+  billSha256: string;
+  invoiceId: string;
+  ruleChecks: string[];
+  varianceAtRiskPaise: string;
+  fieldConfidencesMin: number;
+  promptGuardBlocked: boolean;
+  abstainedClarity: boolean;
+  gstinValid: boolean;
+  autoCleanEligible: boolean;
+  humanApprovalAllowed: boolean;
+  exportEligible: boolean;
+  clarityScore?: number;
+  gstScheduleVersion?: "v1_pre_gst2" | "v2_gst2";
+  recordedAtIso: string;
 }
 
 export interface AuditLedgerEvent {
@@ -217,6 +242,7 @@ export interface AuditLedgerEvent {
 export interface BenchmarkReport {
   runId: string;
   executedAtIso: string;
+  commitSha?: string;
   seed: number;
   generatorVersion: string;
   ruleBundleVersion: string;
@@ -523,6 +549,8 @@ export interface ExternalHfCaseResult {
 export interface ExternalHfReport {
   runId: string;
   executedAtIso: string;
+  mode?: string;
+  seed?: number;
   targetBaseUrl: string;
   targetCodeCommit: string;
   attribution: {

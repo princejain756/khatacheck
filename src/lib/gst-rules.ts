@@ -9,8 +9,22 @@ import type {
   VendorRatePoint,
 } from "./types";
 
-export const RULE_BUNDLE_VERSION = "2026.11.v1-synthetic-demo";
-export const ORACLE_PROFILE_LABEL = "Synthetic Oracle v1 (Demo Fixture Scope)";
+export const RULE_BUNDLE_VERSION = "2026.11.v2-gst2-date-effective";
+export const ORACLE_PROFILE_LABEL = "Synthetic Oracle v2 (Date-Effective Pre/Post GST 2.0)";
+export const GST2_EFFECTIVE_DATE = "2025-09-22";
+
+export type GstScheduleVersion = "v1_pre_gst2" | "v2_gst2";
+
+export function resolveGstScheduleVersion(invoiceDate?: string): GstScheduleVersion {
+  const clean = String(invoiceDate ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean) && clean < GST2_EFFECTIVE_DATE) {
+    return "v1_pre_gst2";
+  }
+  return "v2_gst2";
+}
+
+export const V1_LEGAL_SLABS_BPS = new Set([0, 300, 500, 1200, 1800, 2800]);
+export const V2_LEGAL_SLABS_BPS = new Set([0, 300, 500, 1800, 4000]);
 
 const GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
@@ -95,7 +109,12 @@ export function validateGstin(rawInput: string): {
   reason: string;
   legacyReviewNeeded: boolean;
 } {
-  const outerTrimmed = String(rawInput ?? "").replace(/^ +| +$/g, "");
+  const rawStr = String(rawInput ?? "");
+  let spStart = 0;
+  while (spStart < rawStr.length && rawStr[spStart] === " ") spStart += 1;
+  let spEnd = rawStr.length;
+  while (spEnd > spStart && rawStr[spEnd - 1] === " ") spEnd -= 1;
+  const outerTrimmed = rawStr.slice(spStart, spEnd);
   if (!outerTrimmed) {
     return {
       valid: false,
@@ -172,6 +191,8 @@ export function validateGstin(rawInput: string): {
   };
 }
 
+export type SupportedGstPct = 0 | 3 | 5 | 12 | 18 | 28 | 40;
+
 export interface HsnRuleEntry {
   ruleId: string;
   hsnCode: string;
@@ -182,34 +203,60 @@ export interface HsnRuleEntry {
   sgstOrUtgstBps: number;
   igstBps: number;
   effectiveFrom: string;
+  effectiveTo?: string;
+  scheduleVersion: GstScheduleVersion;
+  valueThresholdPaise?: string;
+  overThresholdGstPct?: SupportedGstPct;
   sourceDigest: string;
+}
+
+function hsnWithSchedule(
+  hsnCode: string,
+  description: string,
+  merchandiseGroup: MerchandiseGroup,
+  gstPct: SupportedGstPct,
+  scheduleVersion: GstScheduleVersion,
+  options?: {
+    taxTreatment?: "taxable" | "nil_rated" | "exempt";
+    valueThresholdPaise?: string;
+    overThresholdGstPct?: SupportedGstPct;
+  }
+): HsnRuleEntry {
+  const igstBps = gstPct * 100;
+  const half = Math.floor(igstBps / 2);
+  const isV2 = scheduleVersion === "v2_gst2";
+  return {
+    ruleId: `HSN-${hsnCode}-${gstPct}`,
+    hsnCode,
+    description,
+    merchandiseGroup,
+    taxTreatment: options?.taxTreatment ?? "taxable",
+    cgstBps: half,
+    sgstOrUtgstBps: igstBps - half,
+    igstBps,
+    effectiveFrom: isV2 ? GST2_EFFECTIVE_DATE : "2017-07-01",
+    ...(isV2 ? {} : { effectiveTo: "2025-09-21" }),
+    scheduleVersion,
+    ...(options?.valueThresholdPaise ? { valueThresholdPaise: options.valueThresholdPaise } : {}),
+    ...(options?.overThresholdGstPct !== undefined ? { overThresholdGstPct: options.overThresholdGstPct } : {}),
+    sourceDigest: isV2 ? "cbic-56th-council-gst2-2025-09-22" : "demo-synthetic-oracle-v1",
+  };
 }
 
 function hsn(
   hsnCode: string,
   description: string,
   merchandiseGroup: MerchandiseGroup,
-  gstPct: 0 | 5 | 12 | 18 | 28,
+  gstPct: SupportedGstPct,
   taxTreatment: "taxable" | "nil_rated" | "exempt" = "taxable"
 ): HsnRuleEntry {
-  const igstBps = gstPct * 100;
-  const half = Math.floor(igstBps / 2);
-  return {
-    ruleId: `HSN-${hsnCode}-${gstPct}`,
-    hsnCode,
-    description,
-    merchandiseGroup,
+  return hsnWithSchedule(hsnCode, description, merchandiseGroup, gstPct, "v1_pre_gst2", {
     taxTreatment,
-    cgstBps: half,
-    sgstOrUtgstBps: igstBps - half,
-    igstBps,
-    effectiveFrom: "2024-01-01",
-    sourceDigest: "demo-synthetic-oracle-v1",
-  };
+  });
 }
 
-// 60 headings across Kirana (15), FMCG (15), Textile (15), Pharmacy & Supplies (15)
-export const HSN_SCHEDULE_60: readonly HsnRuleEntry[] = [
+// Legacy pre-22-Sep-2025 60 headings across Kirana (15), FMCG (15), Textile (15), Pharmacy & Supplies (15)
+export const HSN_SCHEDULE_60_V1: readonly HsnRuleEntry[] = [
   // Kirana (15)
   hsn("0713", "Dried leguminous vegetables / pulses (prepacked & labelled)", "kirana", 5),
   hsn("0901", "Coffee roasted / retail packets", "kirana", 5),
@@ -254,12 +301,12 @@ export const HSN_SCHEDULE_60: readonly HsnRuleEntry[] = [
   hsn("6006", "Knitted or crocheted cotton/synthetic fabrics", "textile", 5),
   hsn("6105", "Men/boys knitted cotton shirts (value <= threshold)", "textile", 5),
   hsn("6109", "T-shirts, singlets & vests (value <= threshold)", "textile", 5),
-  hsn("6203", "Men/boys woven trousers & suits (standard demo slab)", "textile", 12),
-  hsn("6204", "Women/girls woven suits & kurtas (standard demo slab)", "textile", 12),
-  hsn("6205", "Men/boys woven shirts (standard demo slab)", "textile", 12),
+  hsn("6203", "Men/boys woven trousers & suits (pre-GST-2.0 slab)", "textile", 12),
+  hsn("6204", "Women/girls woven suits & kurtas (pre-GST-2.0 slab)", "textile", 12),
+  hsn("6205", "Men/boys woven shirts (pre-GST-2.0 slab)", "textile", 12),
   hsn("6206", "Women/girls woven blouses & tops", "textile", 5),
   hsn("6302", "Cotton bed linen, table linen & towels (<= threshold)", "textile", 5),
-  hsn("6304", "Curtains & furnishing articles (higher value slab)", "textile", 12),
+  hsn("6304", "Curtains & furnishing articles (pre-GST-2.0 slab)", "textile", 12),
 
   // Pharmacy & Supplies (15)
   hsn("3003", "Unmixed/compounded ayurvedic & generic medicaments", "pharmacy", 12),
@@ -279,18 +326,102 @@ export const HSN_SCHEDULE_60: readonly HsnRuleEntry[] = [
   hsn("9022", "Medical X-ray & imaging apparatus", "pharmacy", 12),
 ];
 
-const HSN_MAP = new Map<string, HsnRuleEntry>();
-for (const entry of HSN_SCHEDULE_60) {
-  HSN_MAP.set(entry.hsnCode, entry);
+const V2_OVERRIDES: Readonly<
+  Record<
+    string,
+    {
+      gstPct: SupportedGstPct;
+      valueThresholdPaise?: string;
+      overThresholdGstPct?: SupportedGstPct;
+    }
+  >
+> = {
+  "0405": { gstPct: 5 },
+  "0406": { gstPct: 5 },
+  "1806": { gstPct: 5 },
+  "1905": { gstPct: 5 },
+  "2106": { gstPct: 5 },
+  "3305": { gstPct: 5 },
+  "3306": { gstPct: 5 },
+  "3401": { gstPct: 5 },
+  "4818": { gstPct: 5 },
+  "6203": { gstPct: 5, valueThresholdPaise: "250000", overThresholdGstPct: 18 },
+  "6204": { gstPct: 5, valueThresholdPaise: "250000", overThresholdGstPct: 18 },
+  "6205": { gstPct: 5, valueThresholdPaise: "250000", overThresholdGstPct: 18 },
+  "6304": { gstPct: 5, valueThresholdPaise: "250000", overThresholdGstPct: 18 },
+  "3003": { gstPct: 5 },
+  "3004": { gstPct: 5 },
+  "3005": { gstPct: 5 },
+  "3006": { gstPct: 5 },
+  "3822": { gstPct: 5 },
+  "4015": { gstPct: 5 },
+  "6115": { gstPct: 5, valueThresholdPaise: "250000", overThresholdGstPct: 18 },
+  "6505": { gstPct: 5, valueThresholdPaise: "250000", overThresholdGstPct: 18 },
+  "9004": { gstPct: 5 },
+  "9018": { gstPct: 5 },
+  "9019": { gstPct: 5 },
+  "9020": { gstPct: 5 },
+  "9022": { gstPct: 5 },
+};
+
+// Post-22-Sep-2025 GST 2.0 (CBIC 56th Council / Notification 09/2025-CT(Rate))
+export const HSN_SCHEDULE_60_V2_GST2: readonly HsnRuleEntry[] = HSN_SCHEDULE_60_V1.map((entry) => {
+  const ov = V2_OVERRIDES[entry.hsnCode];
+  const basePct = (ov ? ov.gstPct : Math.round(entry.igstBps / 100)) as SupportedGstPct;
+  return hsnWithSchedule(entry.hsnCode, entry.description, entry.merchandiseGroup, basePct, "v2_gst2", {
+    taxTreatment: entry.taxTreatment,
+    valueThresholdPaise: ov?.valueThresholdPaise,
+    overThresholdGstPct: ov?.overThresholdGstPct,
+  });
+});
+
+export const HSN_SCHEDULE_60: readonly HsnRuleEntry[] = HSN_SCHEDULE_60_V1;
+
+const HSN_MAP_V1 = new Map<string, HsnRuleEntry>();
+for (const entry of HSN_SCHEDULE_60_V1) {
+  HSN_MAP_V1.set(entry.hsnCode, entry);
 }
 
-export function lookupHsnRule(rawHsn: string): HsnRuleEntry | null {
+const HSN_MAP_V2 = new Map<string, HsnRuleEntry>();
+for (const entry of HSN_SCHEDULE_60_V2_GST2) {
+  HSN_MAP_V2.set(entry.hsnCode, entry);
+}
+
+export function lookupHsnRule(
+  rawHsn: string,
+  invoiceDate?: string,
+  unitRatePaise?: bigint | string
+): HsnRuleEntry | null {
   const clean = String(rawHsn ?? "").replace(/\s+/g, "").trim();
   if (!clean) return null;
-  if (HSN_MAP.has(clean)) return HSN_MAP.get(clean)!;
-  const p4 = clean.slice(0, 4);
-  if (HSN_MAP.has(p4)) return HSN_MAP.get(p4)!;
-  return null;
+  const version = resolveGstScheduleVersion(invoiceDate);
+  const map = version === "v1_pre_gst2" ? HSN_MAP_V1 : HSN_MAP_V2;
+  const base = map.get(clean) ?? map.get(clean.slice(0, 4)) ?? null;
+  if (!base) return null;
+
+  if (
+    version === "v2_gst2" &&
+    base.valueThresholdPaise &&
+    base.overThresholdGstPct !== undefined &&
+    unitRatePaise !== undefined
+  ) {
+    const rate = typeof unitRatePaise === "bigint" ? unitRatePaise : BigInt(unitRatePaise || "0");
+    if (rate > BigInt(base.valueThresholdPaise)) {
+      return hsnWithSchedule(
+        base.hsnCode,
+        base.description,
+        base.merchandiseGroup,
+        base.overThresholdGstPct,
+        "v2_gst2",
+        {
+          taxTreatment: base.taxTreatment,
+          valueThresholdPaise: base.valueThresholdPaise,
+          overThresholdGstPct: base.overThresholdGstPct,
+        }
+      );
+    }
+  }
+  return base;
 }
 
 export function normalizeIdToken(raw: string): string {
@@ -347,12 +478,31 @@ function daysBetweenIso(earlierIso: string, laterIso: string): number {
   return Math.round((t2 - t1) / 86400000);
 }
 
+function safeBigInt(raw: string | undefined | null): bigint {
+  const s = String(raw ?? "0").trim();
+  return /^-?\d+$/.test(s) ? BigInt(s) : 0n;
+}
+
+function nearestSlabBps(declaredRateBps: number, legalSlabs: Set<number>): number {
+  let best = 0;
+  let bestDiff = Infinity;
+  for (const s of legalSlabs) {
+    const d = Math.abs(s - declaredRateBps);
+    if (d < bestDiff) {
+      bestDiff = d;
+      best = s;
+    }
+  }
+  return best;
+}
+
 export function verifyInvoiceDeterministic(
   invoice: InvoiceInput,
   vendorHistory: VendorRatePoint[],
   priorBills: HistoricalBillRecord[]
 ): {
   gstinCheck: ReturnType<typeof validateGstin>;
+  gstScheduleVersion: GstScheduleVersion;
   isInterstate: boolean;
   lineResults: LineVerificationResult[];
   expectedTaxableSubtotalPaise: string;
@@ -360,6 +510,8 @@ export function verifyInvoiceDeterministic(
   expectedGrandTotalPaise: string;
   faults: DetectedFault[];
 } {
+  const scheduleVersion = resolveGstScheduleVersion(invoice.invoiceDate);
+  const legalSlabs = scheduleVersion === "v1_pre_gst2" ? V1_LEGAL_SLABS_BPS : V2_LEGAL_SLABS_BPS;
   const gstinCheck = validateGstin(invoice.vendorGstin);
   const faults: DetectedFault[] = [];
   let faultSeq = 1;
@@ -374,13 +526,46 @@ export function verifyInvoiceDeterministic(
       explanation: `${gstinCheck.reason}. An invalid supplier GSTIN blocks Input Tax Credit reconciliation in GSTR-2B.`,
       declaredPaise: invoice.declaredTotalTaxPaise,
       expectedPaise: "0",
-      variancePaise: invoice.declaredTotalTaxPaise,
+      variancePaise: safeBigInt(invoice.declaredTotalTaxPaise).toString(),
       confidence: 1.0,
     });
   }
 
-  const supplierState = normalizeIdToken(invoice.supplierStateCode || gstinCheck.stateCode || "");
-  const posState = normalizeIdToken(invoice.placeOfSupplyStateCode || supplierState);
+  const rawSupplierState = normalizeIdToken(invoice.supplierStateCode || "");
+  const gstinState = gstinCheck.valid && gstinCheck.stateCode ? gstinCheck.stateCode : "";
+  const supplierState = gstinState || rawSupplierState;
+  if (gstinState && rawSupplierState && rawSupplierState !== gstinState) {
+    faults.push({
+      faultId: `FLT-${faultSeq++}`,
+      category: "invalid_gstin",
+      severity: "high",
+      ruleId: "GST-STATE-CONFLICT",
+      title: "Supplier State Code Conflicts with GSTIN Prefix",
+      explanation: `Declared supplier state ${rawSupplierState} conflicts with validated GSTIN state prefix ${gstinState}.`,
+      declaredPaise: invoice.declaredTotalTaxPaise,
+      expectedPaise: "0",
+      variancePaise: safeBigInt(invoice.declaredTotalTaxPaise).toString(),
+      confidence: 1.0,
+    });
+  }
+
+  const rawPosState = normalizeIdToken(invoice.placeOfSupplyStateCode || "");
+  const posStateValid = !rawPosState || Object.hasOwn(GST_STATE_CODES, rawPosState);
+  if (rawPosState && !posStateValid) {
+    faults.push({
+      faultId: `FLT-${faultSeq++}`,
+      category: "invalid_gstin",
+      severity: "high",
+      ruleId: "GST-PLACE-OF-SUPPLY-INVALID",
+      title: "Invalid Place-of-Supply State Code",
+      explanation: `Declared place of supply "${rawPosState}" is not a valid 2-digit CBIC state code.`,
+      declaredPaise: invoice.declaredTotalTaxPaise,
+      expectedPaise: "0",
+      variancePaise: safeBigInt(invoice.declaredTotalTaxPaise).toString(),
+      confidence: 1.0,
+    });
+  }
+  const posState = rawPosState && posStateValid ? rawPosState : supplierState;
   const isInterstate = Boolean(supplierState && posState && supplierState !== posState);
 
   // Check duplicates (exact fingerprint OR <= 30-day same-vendor challan >= 80% Jaccard)
@@ -414,7 +599,7 @@ export function verifyInvoiceDeterministic(
         explanation: `Matches earlier recorded invoice ${prev.invoiceNumber} dated ${prev.invoiceDate} for the same amount.`,
         declaredPaise: invoice.declaredGrandTotalPaise,
         expectedPaise: "0",
-        variancePaise: invoice.declaredGrandTotalPaise,
+        variancePaise: safeBigInt(invoice.declaredGrandTotalPaise).toString(),
         confidence: 1.0,
       });
       break;
@@ -438,7 +623,7 @@ export function verifyInvoiceDeterministic(
             explanation: `Shares ${j.overlapPct}% line-item overlap with prior bill ${prev.invoiceNumber} (${prev.invoiceDate}) under the same delivery challan within ${gap} days.`,
             declaredPaise: invoice.declaredGrandTotalPaise,
             expectedPaise: "0",
-            variancePaise: invoice.declaredGrandTotalPaise,
+            variancePaise: safeBigInt(invoice.declaredGrandTotalPaise).toString(),
             confidence: 1.0,
           });
           break;
@@ -451,17 +636,20 @@ export function verifyInvoiceDeterministic(
   const lineResults: LineVerificationResult[] = [];
   let sumTaxable = 0n;
   let sumTax = 0n;
+  let sumLineVariances = 0n;
 
   for (const line of invoice.lines) {
-    const qtyMilli = BigInt(Math.max(0, Math.trunc(line.qtyMilli)));
-    const ratePaise = BigInt(line.unitRatePaise || "0");
-    const discountPaise = BigInt(line.discountPaise || "0");
+    const safeQtyNum = Number.isFinite(line.qtyMilli) ? Math.max(0, Math.trunc(line.qtyMilli)) : 0;
+    const qtyMilli = BigInt(safeQtyNum);
+    const ratePaise = safeBigInt(line.unitRatePaise);
+    const discountPaise = safeBigInt(line.discountPaise);
     const gross = halfUpDiv(qtyMilli * ratePaise, 1000n);
     const validDiscount = discountPaise < 0n || discountPaise > gross ? 0n : discountPaise;
     const expectedTaxable = gross - validDiscount;
-    const declaredTaxable = BigInt(line.declaredTaxablePaise || "0");
+    const declaredTaxable = safeBigInt(line.declaredTaxablePaise);
 
-    const hsnRule = lookupHsnRule(line.hsnCode);
+    const hsnRule = lookupHsnRule(line.hsnCode, invoice.invoiceDate, ratePaise);
+    const hsnUnverified = hsnRule === null;
     const expectedRateBps = hsnRule ? hsnRule.igstBps : null;
     const declaredRateBps =
       (line.declaredCgstBps || 0) + (line.declaredSgstBps || 0) + (line.declaredIgstBps || 0);
@@ -484,28 +672,44 @@ export function verifyInvoiceDeterministic(
       expectedSgst = halfUpDiv(expectedTaxable * BigInt(declaredRateBps - halfBps), 10000n);
     }
 
-    const declaredCgst = BigInt(line.declaredCgstPaise || "0");
-    const declaredSgst = BigInt(line.declaredSgstPaise || "0");
-    const declaredIgst = BigInt(line.declaredIgstPaise || "0");
+    const declaredCgst = safeBigInt(line.declaredCgstPaise);
+    const declaredSgst = safeBigInt(line.declaredSgstPaise);
+    const declaredIgst = safeBigInt(line.declaredIgstPaise);
+
+    // Check line arithmetic & tax split against declared rate independently of HSN slab mismatch
+    const declHalfBps = Math.floor(declaredRateBps / 2);
+    const expectedCgstAtDecl = isInterstate
+      ? 0n
+      : halfUpDiv(expectedTaxable * BigInt(declHalfBps), 10000n);
+    const expectedSgstAtDecl = isInterstate
+      ? 0n
+      : halfUpDiv(expectedTaxable * BigInt(declaredRateBps - declHalfBps), 10000n);
+    const expectedIgstAtDecl = isInterstate
+      ? halfUpDiv(expectedTaxable * BigInt(declaredRateBps), 10000n)
+      : 0n;
+    const expectedLineTotalAtDecl =
+      expectedTaxable + expectedCgstAtDecl + expectedSgstAtDecl + expectedIgstAtDecl;
+
     const hasTaxSplitViolation = isInterstate
       ? (line.declaredCgstBps || 0) !== 0 ||
         (line.declaredSgstBps || 0) !== 0 ||
         declaredCgst !== 0n ||
         declaredSgst !== 0n ||
-        declaredIgst !== expectedIgst
+        declaredIgst !== expectedIgstAtDecl
       : (line.declaredIgstBps || 0) !== 0 ||
         declaredIgst !== 0n ||
-        declaredCgst !== expectedCgst ||
-        declaredSgst !== expectedSgst;
+        declaredCgst !== expectedCgstAtDecl ||
+        declaredSgst !== expectedSgstAtDecl;
 
     const expectedLineTotal = expectedTaxable + expectedCgst + expectedSgst + expectedIgst;
-    const declaredLineTotal = BigInt(line.declaredLineTotalPaise || "0");
+    const declaredLineTotal = safeBigInt(line.declaredLineTotalPaise);
 
-    // Check HSN slab mismatch first vs arithmetic or tax component split mismatch
+    // 1. Evaluate HSN slab / notified legal slab independently (no else-if masking)
     if (hsnRule && expectedRateBps !== null && declaredRateBps !== expectedRateBps) {
       const declaredTaxAtWrongSlab = halfUpDiv(expectedTaxable * BigInt(declaredRateBps), 10000n);
       const expectedTaxAtHsnSlab = expectedCgst + expectedSgst + expectedIgst;
-      const taxOvercharge = declaredTaxAtWrongSlab - expectedTaxAtHsnSlab;
+      const taxOvercharge = bigIntAbs(declaredTaxAtWrongSlab - expectedTaxAtHsnSlab);
+      sumLineVariances += taxOvercharge;
       faults.push({
         faultId: `FLT-${faultSeq++}`,
         category: "hsn_mismatch",
@@ -514,25 +718,49 @@ export function verifyInvoiceDeterministic(
         lineNumber: line.lineNumber,
         sku: line.sku,
         title: `Line ${line.lineNumber}: Wrong GST Slab on HSN ${hsnRule.hsnCode}`,
-        explanation: `${line.description} carries HSN ${hsnRule.hsnCode} (${hsnRule.description}) at ${(expectedRateBps / 100).toFixed(0)}% GST, but bill charged ${(declaredRateBps / 100).toFixed(0)}%.`,
+        explanation: `${line.description} carries HSN ${hsnRule.hsnCode} (${hsnRule.description}, ${scheduleVersion}) at ${(expectedRateBps / 100).toFixed(0)}% GST, but bill charged ${(declaredRateBps / 100).toFixed(0)}%.`,
         declaredPaise: declaredTaxAtWrongSlab.toString(),
         expectedPaise: expectedTaxAtHsnSlab.toString(),
-        variancePaise: bigIntAbs(taxOvercharge).toString(),
+        variancePaise: taxOvercharge.toString(),
         bbox: line.bbox,
         confidence: line.ocrConfidence,
       });
-    } else if (
+    } else if (!hsnRule && !legalSlabs.has(declaredRateBps)) {
+      const nearestBps = nearestSlabBps(declaredRateBps, legalSlabs);
+      const declaredTaxSum = halfUpDiv(expectedTaxable * BigInt(declaredRateBps), 10000n);
+      const nearestLegalTax = halfUpDiv(expectedTaxable * BigInt(nearestBps), 10000n);
+      const nonSlabVariance = bigIntAbs(declaredTaxSum - nearestLegalTax);
+      sumLineVariances += nonSlabVariance;
+      faults.push({
+        faultId: `FLT-${faultSeq++}`,
+        category: "hsn_mismatch",
+        severity: "high",
+        ruleId: "GST-RATE-NOT-A-SLAB",
+        lineNumber: line.lineNumber,
+        sku: line.sku,
+        title: `Line ${line.lineNumber}: Unrecognized GST Slab (${(declaredRateBps / 100).toFixed(2).replace(/\.00$/, "")}%)`,
+        explanation: `HSN ${line.hsnCode} is off-schedule and declared ${(declaredRateBps / 100).toFixed(2).replace(/\.00$/, "")}% GST is not a notified legal slab under ${scheduleVersion}.`,
+        declaredPaise: declaredTaxSum.toString(),
+        expectedPaise: nearestLegalTax.toString(),
+        variancePaise: nonSlabVariance.toString(),
+        bbox: line.bbox,
+        confidence: line.ocrConfidence,
+      });
+    }
+
+    // 2. Evaluate line arithmetic & tax split independently
+    if (
       discountPaise < 0n ||
       discountPaise > gross ||
       declaredTaxable !== expectedTaxable ||
-      declaredLineTotal !== expectedLineTotal ||
+      declaredLineTotal !== expectedLineTotalAtDecl ||
       hasTaxSplitViolation
     ) {
-      const delta = bigIntAbs(declaredLineTotal - expectedLineTotal);
+      const delta = bigIntAbs(declaredLineTotal - expectedLineTotalAtDecl);
       const splitDelta =
-        bigIntAbs(declaredCgst - expectedCgst) +
-        bigIntAbs(declaredSgst - expectedSgst) +
-        bigIntAbs(declaredIgst - expectedIgst);
+        bigIntAbs(declaredCgst - expectedCgstAtDecl) +
+        bigIntAbs(declaredSgst - expectedSgstAtDecl) +
+        bigIntAbs(declaredIgst - expectedIgstAtDecl);
       if (
         delta > 0n ||
         splitDelta > 0n ||
@@ -542,13 +770,14 @@ export function verifyInvoiceDeterministic(
         declaredTaxable !== expectedTaxable
       ) {
         const declaredTaxSum = declaredCgst + declaredSgst + declaredIgst;
-        const expectedTaxSum = expectedCgst + expectedSgst + expectedIgst;
+        const expectedTaxSum = expectedCgstAtDecl + expectedSgstAtDecl + expectedIgstAtDecl;
         const lineVariance =
           delta > 0n
             ? delta
             : splitDelta > 0n
               ? splitDelta
               : bigIntAbs(declaredTaxable - expectedTaxable);
+        sumLineVariances += lineVariance;
         faults.push({
           faultId: `FLT-${faultSeq++}`,
           category: "arithmetic_mismatch",
@@ -562,7 +791,7 @@ export function verifyInvoiceDeterministic(
               : `Line ${line.lineNumber}: Arithmetic / Tax Calculation Mismatch`,
           explanation: `Line ${line.lineNumber} (${line.description}) differs from deterministic ${isInterstate ? "interstate IGST" : "intrastate CGST/SGST"} BigInt calculation.`,
           declaredPaise: (delta === 0n && hasTaxSplitViolation ? declaredTaxSum : declaredLineTotal).toString(),
-          expectedPaise: (delta === 0n && hasTaxSplitViolation ? expectedTaxSum : expectedLineTotal).toString(),
+          expectedPaise: (delta === 0n && hasTaxSplitViolation ? expectedTaxSum : expectedLineTotalAtDecl).toString(),
           variancePaise: lineVariance.toString(),
           bbox: line.bbox,
           confidence: line.ocrConfidence,
@@ -570,7 +799,7 @@ export function verifyInvoiceDeterministic(
       }
     }
 
-    // Check 90-day supplier median rate drift (>= 6 distinct prior approved observations, upward jump >= 20%)
+    // Check 90-day supplier median rate drift (>= 6 prior approved observations, upward jump >= 20%)
     const priors = vendorHistory
       .filter(
         (p) =>
@@ -583,7 +812,7 @@ export function verifyInvoiceDeterministic(
         const d = daysBetweenIso(p.invoiceDate, invoice.invoiceDate);
         return d >= 1 && d <= 90;
       })
-      .map((p) => BigInt(p.unitRatePaise))
+      .map((p) => safeBigInt(p.unitRatePaise))
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
     if (priors.length >= 6) {
@@ -623,6 +852,7 @@ export function verifyInvoiceDeterministic(
       hsnCode: line.hsnCode,
       hsnMatchedRuleId: hsnRule ? hsnRule.ruleId : null,
       hsnDescription: hsnRule ? hsnRule.description : null,
+      hsnUnverified,
       expectedRateBps,
       declaredRateBps,
       expectedTaxablePaise: expectedTaxable.toString(),
@@ -638,21 +868,37 @@ export function verifyInvoiceDeterministic(
     });
   }
 
-  const roundOff = BigInt(invoice.roundOffPaise || "0");
+  const roundOff = safeBigInt(invoice.roundOffPaise);
   const validRoundOff = bigIntAbs(roundOff) <= 50n ? roundOff : 0n;
   const expectedGrandTotal = sumTaxable + sumTax + validRoundOff;
-  const declaredGrandTotal = BigInt(invoice.declaredGrandTotalPaise || "0");
-  const declaredTaxableSubtotal = BigInt(invoice.declaredTaxableSubtotalPaise || "0");
-  const declaredTotalTax = BigInt(invoice.declaredTotalTaxPaise || "0");
+  const declaredGrandTotal = safeBigInt(invoice.declaredGrandTotalPaise);
+  const declaredTaxableSubtotal = safeBigInt(invoice.declaredTaxableSubtotalPaise);
+  const declaredTotalTax = safeBigInt(invoice.declaredTotalTaxPaise);
 
-  // Header subtotal/tax/grand total check when no line-level fault already explains the gap
+  // Header grand-total check fires whenever grandDelta exceeds sum of line variances (no silent masking),
+  // plus subtotal/tax check when no line-level math/HSN fault already explains the header gap.
   const hasLineMathOrHsn = faults.some(
     (f) => f.category === "arithmetic_mismatch" || f.category === "hsn_mismatch"
   );
   const grandDelta = bigIntAbs(declaredGrandTotal - expectedGrandTotal);
   const taxableSubDelta = bigIntAbs(declaredTaxableSubtotal - sumTaxable);
   const totalTaxDelta = bigIntAbs(declaredTotalTax - sumTax);
-  if ((grandDelta > 0n || taxableSubDelta > 0n || totalTaxDelta > 0n) && !hasLineMathOrHsn) {
+
+  if (grandDelta > sumLineVariances) {
+    const excessGrandVariance = grandDelta - sumLineVariances;
+    faults.push({
+      faultId: `FLT-${faultSeq++}`,
+      category: "arithmetic_mismatch",
+      severity: "high",
+      ruleId: "MATH-GRAND-TOTAL-CHECK",
+      title: "Invoice Grand Total Mismatch",
+      explanation: `Declared invoice grand total differs from deterministic sum of line items and GST components beyond line-level discrepancies.`,
+      declaredPaise: declaredGrandTotal.toString(),
+      expectedPaise: expectedGrandTotal.toString(),
+      variancePaise: excessGrandVariance.toString(),
+      confidence: 1.0,
+    });
+  } else if ((grandDelta > 0n || taxableSubDelta > 0n || totalTaxDelta > 0n) && !hasLineMathOrHsn) {
     const headerVariance =
       grandDelta > 0n ? grandDelta : totalTaxDelta > 0n ? totalTaxDelta : taxableSubDelta;
     faults.push({
@@ -671,6 +917,7 @@ export function verifyInvoiceDeterministic(
 
   return {
     gstinCheck,
+    gstScheduleVersion: scheduleVersion,
     isInterstate,
     lineResults,
     expectedTaxableSubtotalPaise: sumTaxable.toString(),
