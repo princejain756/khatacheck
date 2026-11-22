@@ -511,8 +511,14 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
               </h2>
               <p className="type-meta text-muted mt-0.5">
                 Live HTTPS round-trip against{" "}
-                <span className="font-code text-ink">{e2eReport.targetBaseUrl}</span> ·{" "}
-                <span className="font-code">{e2eReport.runId}</span> ·{" "}
+                <span className="font-code text-ink">{e2eReport.targetBaseUrl}</span>
+                {e2eReport.targetCodeCommit ? (
+                  <>
+                    {" "}
+                    · commit <span className="font-code text-ink">{e2eReport.targetCodeCommit.slice(0, 7)}</span>
+                  </>
+                ) : null}{" "}
+                · <span className="font-code">{e2eReport.runId}</span> ·{" "}
                 {e2eReport.imageSummary.enginesObserved.join(", ")} + {e2eReport.audioSummary.asrModel}
               </p>
             </div>
@@ -620,7 +626,7 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
                 <tbody className="divide-y divide-line">
                   {e2eReport.imageResults.map((row) => {
                     const ok = row.expectedClarityPass
-                      ? row.faultDetectionPassed && row.grandTotalMatched
+                      ? row.faultDetectionPassed && Boolean(row.grandTotalMatched)
                       : row.abstentionPassed;
                     return (
                       <tr key={row.caseId} className="hover:bg-subtle/60">

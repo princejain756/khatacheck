@@ -365,10 +365,10 @@ export interface E2eImageCaseResult {
   expectedLineCount: number;
   extractedLineCount: number;
   vendorGstinExtracted: string;
-  vendorGstinMatched: boolean;
+  vendorGstinMatched: boolean | null;
   expectedGrandTotalPaise: string;
   extractedGrandTotalPaise: string;
-  grandTotalMatched: boolean;
+  grandTotalMatched: boolean | null;
   detectedCategories: FaultCategory[];
   faultDetectionPassed: boolean;
   abstainedClarity: boolean;
@@ -405,6 +405,7 @@ export interface E2eOcrAsrReport {
   runId: string;
   executedAtIso: string;
   targetBaseUrl: string;
+  targetCodeCommit?: string;
   imageSummary: {
     totalCases: number;
     crispGeneratedCases: number;

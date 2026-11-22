@@ -14,7 +14,7 @@ Built by Prince Jain for the **NeuraViz AI Challenge 2026-27 (Stage 4 Final)**.
    - `voice-parser.ts`: Reconciles English and Hinglish receiving voice notes (for example *"20 peti likha hai par 18 hi aayi"*, Devanagari digits, negation guards) against supplier line items.
    - `prompt-guard.ts`: Quarantines untrusted OCR and voice notes across 6 injection families (`PG-A` through `PG-F`) plus bounded base64/hex decoding before deterministic math executes.
    - `dpdp-privacy.ts`: Masks mobile numbers, emails, PAN, Aadhaar, and UPI handles before model egress while preserving 15-character supplier GSTIN tokens, paired with bilingual English/Hindi notice (`dpdp-v1.2-2026-11`), 30-day raw-media expiry plan (Days 61 to 90 rollout; demo runs in memory), and `/privacy` / `/delete-data` erasure controls.
-   - `governance-ledger.ts`: Append-only SHA-256 hash-chained audit ledger (`data/audit-ledger.jsonl`), copy-only tamper simulator, Automation Bias Monitor (`n >= 50` gate, alerts if approval > 95% and median dwell < 3s), 5-Gate Lifecycle sign-off matrix, and TallyPrime XML **Sandbox Profile** export.
+   - `governance-ledger.ts`: Append-only SHA-256 hash-chained audit ledger (`data/audit-ledger.jsonl`), copy-only tamper simulator, Automation Bias Monitor (`n >= 50` gate, alerts if approval > 95% and `0 < median dwell < 3s`), 5-Gate Lifecycle sign-off matrix, and TallyPrime XML **Sandbox Profile** export.
    - **Stage 4 Demo Boundary**: The deployed web routes and API endpoints run unauthenticated inside an isolated synthetic single-tenant sandbox (`store-ganesh-blr-01`) with zero live merchant records; production multi-tenant store auth and per-store credentialing are scoped for post-pilot rollout.
 
 ## Executed Synthetic Benchmark Results (Seed `1263026516`)
@@ -28,7 +28,10 @@ All quantitative accuracy and security metrics below come from our local seeded 
 - **Red-Team Resilience**: `50 / 50` blocked/isolated, `50 / 50` tax integrity unchanged, `50 / 50` zero PII leaks.
 - **Latency & Pilot Status**: In-process deterministic compute across `2,500` runs (`5` passes): `p50 = 0.015 ms`, `p95 = 0.023 ms`, `max = 0.2 ms`. Manual kirana reconciliation baseline runs `12 to 25 min` active time per bill plus `7 to 30 days` GST filing lag. The registered 10-store, 4-week Bengaluru shadow pilot is currently `NOT_RUN`, with `t0 -> t_flag` telemetry instrumented and ready for launch Gate 5 sign-off.
 
-## Reproduction
+## Prerequisites & Reproduction
+
+- **Native OCR & Clarity Prerequisites**: `tests/engine.test.ts` and live image uploads require `tesseract` CLI (`brew install tesseract` on macOS or `apt-get install tesseract-ocr` on Linux) and `python3` with `Pillow` (`PIL`) for 3x3 Laplacian variance clarity scoring (`<85` abstention gate). Without `tesseract` on `PATH`, the OCR extraction test in `tests/engine.test.ts` fails.
+- **Voice ASR Environment (`GROQ_API_KEY`)**: Set `GROQ_API_KEY` in `.env.local` (gitignored) to enable live `POST /api/transcribe` (`whisper-large-v3-turbo`) and optional scrubbed-text structuring (`qwen/qwen3.8-27b`). If unset, `POST /api/transcribe` returns HTTP `503`.
 
 ```bash
 npm ci
@@ -38,4 +41,10 @@ npm run lint
 npm run benchmark
 npm run build
 npm start
+```
+
+To run the 19-image + 5-audio end-to-end HTTP lab suite using the fixtures in `benchmark/e2e_fixtures/` against a running server (`GROQ_API_KEY` required on the target server for `/api/transcribe`):
+
+```bash
+KHATACHECK_BASE_URL=http://127.0.0.1:3000 node scripts/run_e2e_ocr_asr_benchmark.mjs
 ```

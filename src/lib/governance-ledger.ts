@@ -51,7 +51,7 @@ export function seedDefaultLedger(): AuditLedgerEvent[] {
       invoiceId: "SCN-01-KIRANA-SHORT",
       invoiceNumber: "SLGW/24-25/0736",
       vendorName: "Shree Lakshmi General Wholesalers",
-      billSha256: "a84e3d9c5f14b2116e7e98a003c7f19f891a4b67c5319023e014e1b881a4d7c1",
+      billSha256: "416903710a69cff7855d3ebebada9c5fa3067e6ccd5b589fce796a0be736af87",
       billReceivedTs: "2026-11-20T09:14:00.000Z",
       flagSentTs: "2026-11-20T09:14:00.412Z",
       ownerApprovalTs: "2026-11-20T09:14:28.900Z",
