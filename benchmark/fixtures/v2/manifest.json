@@ -1,0 +1,11 @@
+{
+  "seed": 1263026516,
+  "commitSha": "6899570",
+  "generatorVersion": "fixture-generator-v2",
+  "ruleBundleVersion": "2026.11.v2-gst2-date-effective",
+  "fileHashes": {
+    "invoicesSha256": "19c29742793815d57c347dbf40e77e443476149c95d980fa5bcf59a8ab5a5ee9",
+    "labelsSha256": "26ac42e2bee9a1ddc88f90640c6f8008e8d93d8c1931207edc094e156d29a3d2",
+    "attacksSha256": "859bae4f5b1c715f418368875b629434a30e491e68a5617c167da1d18b83cef5"
+  }
+}
