@@ -47,7 +47,14 @@ const GUARD_RULES: readonly GuardRule[] = [
     family: "B_boundary_escape",
     severity: "critical",
     pattern:
-      /(?:^|[\s"'‘’(\[])(?:(?:SYSTEM|ASSISTANT|DEVELOPER|MODEL|LLM)(?:\s+OVER[A-Z]{2,8})?|Assistant|Instruction|Note\s+to\s+A[Ilv]\s+assistant|A[Ilv]\s+extraction\s+note|(?:\S+\s+)?assistant(?=\s*:\s*(?:the|set|ignore|change|override|output|treat|this|ne)))\s*:\s*\S/,
+      /(?:^|[\s"'‘’(\[])(?:(?:SYSTEM|ASSISTANT|DEVELOPER|LLM)(?:\s+OVER[A-Z]{2,8})?|Assistant|Instruction|Note\s+to\s+A[Ilv]\s+assistant|A[Ilv]\s+extraction\s+note|(?:\S+\s+)?assistant(?=\s*:\s*(?:the|set|ignore|change|override|output|treat|this|ne)))\s*:\s*\S/,
+  },
+  {
+    ruleId: "PG-B04-MODEL-ROLE-DIRECTIVE",
+    family: "B_boundary_escape",
+    severity: "critical",
+    pattern:
+      /(?:^|[\s"'‘’(\[])MODEL\s*:\s*(?:ignore|disregard|override|bypass|forget|auto[-\s]*approve|set\s+|change\s+|replace\s+|overwrite\s+|swap\s+|force\s+|output\s+|treat\s+|return\s+|reply\s+|you\s+are|this\s+invoice|\{)/i,
   },
   {
     ruleId: "PG-D01-BIDI-CONTROL",

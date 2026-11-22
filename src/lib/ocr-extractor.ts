@@ -319,8 +319,8 @@ function tokenizeRowForParsing(rawRow: string, expectedRowNum: number): string[]
     }
   }
 
-  // Split slash/pipe-joined qty/unit tokens cleanly (e.g. "1/PCS", "2/|PCS", "2\\/PCS", "4/PCS", "28/ sTRIP", "50 /REAM")
-  // Also strip standalone leading "/" border misreads attached to numbers (e.g. "28 /10,347.68")
+  // Split slash/pipe-joined qty/unit tokens cleanly (e.g. "1/PCS", "2/|PCS", "3\\/NOS", "5/BOX", "12/ pkt")
+  // Also strip standalone leading "/" border misreads attached to numeric currency tokens (e.g. "18 /1,250.00")
   const slashNormalized = s
     .replace(/(\d+(?:\.\d+)?)\s*[\\/|\]\[{}!]+\/\s*([A-Za-z]{1,10})\b/g, "$1/$2")
     .replace(/(\d+(?:\.\d+)?)\s*\/\s*[|\]\[{}!\\]+\s*([A-Za-z]{1,10})\b/g, "$1/$2")
@@ -1232,6 +1232,7 @@ export function parseOcrInvoiceText(
   let roundOffPaise = 0n;
   let declaredTaxableSubtotalPaise: bigint | null = null;
   let declaredGrandTotalPaise: bigint | null = null;
+  let sawExplicitGrandTotal = false;
   let declaredCgstPaise = 0n;
   let declaredSgstPaise = 0n;
   let declaredIgstPaise = 0n;
@@ -1263,13 +1264,22 @@ export function parseOcrInvoiceText(
       placeOfSupplyStateCode = findStateCodeFromText(line) ?? "";
     }
 
-    const gtMatch =
+    const explicitGtMatch =
       /(?:grand\s*total|net\s*payable|invoice\s*total|total\s*payable)\b[^0-9-]*(-?[\d,]+(?:\.\d{1,2})?)/i.exec(
         line
-      ) || /^total\s*(?:rs\.?|₹|:|=)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i.exec(line);
-    if (gtMatch) {
-      const p = safeParsePaise(gtMatch[1]);
-      if (p !== null && p > 0n) declaredGrandTotalPaise = p;
+      );
+    if (explicitGtMatch) {
+      const p = safeParsePaise(explicitGtMatch[1]);
+      if (p !== null && p > 0n) {
+        declaredGrandTotalPaise = p;
+        sawExplicitGrandTotal = true;
+      }
+    } else if (!sawExplicitGrandTotal) {
+      const genericTotalMatch = /^total\s*(?:rs\.?|₹|:|=)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i.exec(line);
+      if (genericTotalMatch) {
+        const p = safeParsePaise(genericTotalMatch[1]);
+        if (p !== null && p > 0n) declaredGrandTotalPaise = p;
+      }
     }
 
     const tvMatch = /(?:total\s+taxable\s+value|taxable\s+(?:value|subtotal)|sub\s*total|subtotal)\b[^0-9]*([\d,]+(?:\.\d{1,2})?)/i.exec(
@@ -1305,7 +1315,7 @@ export function parseOcrInvoiceText(
     if (/^(?:add\s*:\s*)?(?:igst|[il1]gst|\(gst)\b/i.test(line) || /\badd\s*:\s*igst\b/i.test(line)) {
       const m = /([\d,]+(?:\.\d{1,2})?)\s*$/.exec(line.replace(/[=)\]}\s]+$/, ""));
       const p = m ? safeParsePaise(m[1]) : null;
-      if (p !== null && p > 0n) {
+      if (p !== null) {
         declaredIgstPaise = p;
         sawExplicitTaxSummary = true;
       }
