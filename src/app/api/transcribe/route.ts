@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scrubPiiForModelEgress } from "@/lib/dpdp-privacy";
+import { PayloadTooLargeError, readRequestBufferWithLimit } from "@/lib/upload-analyzer";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 const MAX_MULTIPART_BYTES = MAX_AUDIO_BYTES + 64 * 1024;
@@ -68,17 +69,6 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const rawContentLen = req.headers.get("content-length");
-    if (rawContentLen) {
-      const contentLen = Number(rawContentLen);
-      if (Number.isFinite(contentLen) && contentLen > MAX_MULTIPART_BYTES) {
-        return NextResponse.json(
-          { error: "Request payload exceeds 10 MiB limit" },
-          { status: 413, headers: { "Cache-Control": "no-store" } }
-        );
-      }
-    }
-
     const contentType = req.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
       return NextResponse.json(
@@ -87,7 +77,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const form = await req.formData();
+    const rawBuf = await readRequestBufferWithLimit(req, MAX_MULTIPART_BYTES);
+    const form = await new Response(new Uint8Array(rawBuf), {
+      headers: { "content-type": contentType },
+    }).formData();
     const rawFile = form.get("file") ?? form.get("audio");
     if (!(rawFile instanceof File)) {
       return NextResponse.json(
@@ -169,6 +162,12 @@ export async function POST(req: NextRequest) {
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      return NextResponse.json(
+        { error: "Request payload exceeds 10 MiB limit" },
+        { status: 413, headers: { "Cache-Control": "no-store" } }
+      );
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Audio transcription failed" },
       { status: 400, headers: { "Cache-Control": "no-store" } }

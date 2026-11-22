@@ -958,28 +958,42 @@ async function runTesseractJsFallback(
     "index.js"
   );
 
-  const worker = await createWorker("eng", 1, {
-    cachePath,
-    ...(fs.existsSync(localWorkerPath) ? { workerPath: localWorkerPath } : {}),
-  });
-
+  const workerRef: { current: Awaited<ReturnType<typeof createWorker>> | null } = { current: null };
   let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-    const recognizePromise = worker.recognize(buf);
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(`Tesseract.js OCR timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+  let timedOut = false;
+
+  const workPromise = (async () => {
+    const w = await createWorker("eng", 1, {
+      cachePath,
+      ...(fs.existsSync(localWorkerPath) ? { workerPath: localWorkerPath } : {}),
     });
-    const res = await Promise.race([recognizePromise, timeoutPromise]);
+    if (timedOut) {
+      await w.terminate().catch(() => undefined);
+      throw new Error(`Tesseract.js OCR timed out after ${timeoutMs}ms`);
+    }
+    workerRef.current = w;
+    await w.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+    const res = await w.recognize(buf);
     return {
       text: String(res.data.text || "").trim(),
       confidence: Number(res.data.confidence || 75),
     };
+  })();
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error(`Tesseract.js OCR timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([workPromise, timeoutPromise]);
   } finally {
     if (timer) clearTimeout(timer);
-    await worker.terminate().catch(() => undefined);
+    if (workerRef.current) {
+      await workerRef.current.terminate().catch(() => undefined);
+    }
   }
 }
 
@@ -1232,10 +1246,14 @@ export async function extractAndParseInvoiceImage(
   const totalLatencyMs = Number((clarity.latencyMs + ocr.latencyMs).toFixed(1));
 
   if (finalParsed.lines.length === 0) {
-    // Honest 0-rupee manual fallback when OCR yields no parseable line items (never fake Rs 1,050)
+    // Honest 0-rupee manual fallback when OCR yields no parseable line items (never carry header totals or fake Rs 1,050)
     const manualInvoice = assembleInvoiceInput(
       {
         ...finalParsed,
+        roundOffPaise: 0n,
+        declaredTaxableSubtotalPaise: null,
+        declaredTotalTaxPaise: null,
+        declaredGrandTotalPaise: null,
         lines: [
           {
             lineNumber: 1,

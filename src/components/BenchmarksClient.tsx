@@ -116,6 +116,12 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
   const targetFaultPassCount = e2eReport
     ? e2eReport.imageResults.filter((r) => r.faultDetectionPassed).length
     : 0;
+  const piiTargetRows = e2eReport
+    ? e2eReport.audioResults.filter((a) => a.expectedRedactionCount > 0)
+    : [];
+  const piiRedactedCount = piiTargetRows.filter(
+    (a) => a.redactionCount >= a.expectedRedactionCount
+  ).length;
 
   const gateChecklist = [
     {
@@ -557,8 +563,14 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
               </div>
               <div className="type-meta text-muted mt-0.5">
                 ASR p50 {e2eReport.audioSummary.asrLatencyP50Ms} ms · Negation{" "}
-                {e2eReport.audioSummary.negationControlPassed ? "Pass" : "Fail"} · PII{" "}
-                {e2eReport.audioSummary.piiRedactionPassed ? "Pass" : "Fail"}
+                {e2eReport.audioSummary.negationControlPassed ? "Pass" : "Fail"} · Mobile PII{" "}
+                {piiTargetRows.length > 0
+                  ? `${piiRedactedCount}/${piiTargetRows.length} ${
+                      e2eReport.audioSummary.piiRedactionPassed ? "Pass" : "Fail"
+                    }`
+                  : e2eReport.audioSummary.piiRedactionPassed
+                    ? "Pass"
+                    : "Fail"}
               </div>
             </div>
           </div>

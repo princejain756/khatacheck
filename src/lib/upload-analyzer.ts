@@ -65,8 +65,15 @@ export function parseCustomInvoiceText(
     try {
       const parsed = JSON.parse(trimmed) as Partial<InvoiceInput>;
       if (parsed && Array.isArray(parsed.lines) && parsed.lines.length > 0) {
+        const rawJsonId = typeof parsed.id === "string" ? parsed.id.trim() : "";
+        const safeJsonId =
+          rawJsonId && !rawJsonId.toUpperCase().startsWith("SCN-")
+            ? rawJsonId.startsWith("UPL-")
+              ? rawJsonId
+              : `UPL-${rawJsonId}`
+            : `UPL-${Date.now()}`;
         return {
-          id: parsed.id || `UPL-${Date.now()}`,
+          id: safeJsonId,
           tenantId: parsed.tenantId || "store-ganesh-blr-01",
           vendorName: parsed.vendorName || "Uploaded Wholesale Supplier",
           vendorGstin: parsed.vendorGstin || "29AAAAA0000A1ZY",
@@ -277,4 +284,47 @@ export async function analyzeUploadedBuffer(
     extractKind: ex.kind,
     invoice,
   };
+}
+
+export class PayloadTooLargeError extends Error {
+  constructor(message = "Request payload exceeds byte limit") {
+    super(message);
+    this.name = "PayloadTooLargeError";
+  }
+}
+
+/**
+ * Enforces byte limit on both declared Content-Length and chunked request body streams
+ * before multipart or JSON parsing buffers arbitrary memory.
+ */
+export async function readRequestBufferWithLimit(req: Request, maxBytes: number): Promise<Buffer> {
+  const rawContentLen = req.headers.get("content-length");
+  if (rawContentLen) {
+    const contentLen = Number(rawContentLen);
+    if (Number.isFinite(contentLen) && contentLen > maxBytes) {
+      throw new PayloadTooLargeError();
+    }
+  }
+
+  if (!req.body) {
+    return Buffer.alloc(0);
+  }
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value || value.byteLength === 0) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new PayloadTooLargeError();
+    }
+    chunks.push(value);
+  }
+
+  return Buffer.concat(chunks, total);
 }

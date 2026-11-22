@@ -3,32 +3,35 @@ import { DEMO_PRIOR_BILLS, DEMO_SCENARIOS, DEMO_VENDOR_HISTORY } from "@/lib/bil
 import { verifyInvoicePipeline } from "@/lib/engine";
 import type { OcrMeta } from "@/lib/ocr-extractor";
 import type { InvoiceInput } from "@/lib/types";
-import { analyzeUploadedBuffer, parseCustomInvoiceText } from "@/lib/upload-analyzer";
+import {
+  PayloadTooLargeError,
+  analyzeUploadedBuffer,
+  parseCustomInvoiceText,
+  readRequestBufferWithLimit,
+} from "@/lib/upload-analyzer";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const MAX_MULTIPART_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
+const MAX_JSON_BYTES = 2 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   try {
-    const rawContentLen = req.headers.get("content-length");
-    if (rawContentLen) {
-      const contentLen = Number(rawContentLen);
-      if (Number.isFinite(contentLen) && contentLen > MAX_MULTIPART_BYTES) {
-        return NextResponse.json(
-          { error: "Request payload exceeds 10 MiB stage-4 demo limit" },
-          { status: 413, headers: { "Cache-Control": "no-store" } }
-        );
-      }
-    }
-
     const contentType = req.headers.get("content-type") || "";
+    const isMultipart = contentType.includes("multipart/form-data");
+    const rawBuf = await readRequestBufferWithLimit(
+      req,
+      isMultipart ? MAX_MULTIPART_BYTES : MAX_JSON_BYTES
+    );
+
     let invoice: InvoiceInput | null = null;
     let enablePiiScrub = true;
     let extractKind = "structured_scenario";
     let ocrMeta: OcrMeta | undefined;
 
-    if (contentType.includes("multipart/form-data")) {
-      const form = await req.formData();
+    if (isMultipart) {
+      const form = await new Response(new Uint8Array(rawBuf), {
+        headers: { "content-type": contentType },
+      }).formData();
       const file = form.get("file");
       const voiceTranscript = String(form.get("voiceTranscript") || "").trim() || undefined;
       enablePiiScrub = String(form.get("enablePiiScrub") ?? "true") !== "false";
@@ -38,7 +41,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Uploaded file is empty" }, { status: 400 });
         }
         if (file.size > MAX_UPLOAD_BYTES) {
-          return NextResponse.json({ error: "File exceeds 10 MiB stage-4 demo limit" }, { status: 400 });
+          return NextResponse.json({ error: "File exceeds 10 MiB stage-4 demo limit" }, { status: 413 });
         }
         const buf = Buffer.from(await file.arrayBuffer());
         const analyzed = await analyzeUploadedBuffer(buf, file.name, {
@@ -50,7 +53,8 @@ export async function POST(req: NextRequest) {
         ocrMeta = analyzed.ocrMeta;
       }
     } else {
-      const body = (await req.json()) as {
+      const bodyText = rawBuf.toString("utf8").trim();
+      const body = (bodyText ? JSON.parse(bodyText) : {}) as {
         scenarioId?: string;
         invoice?: InvoiceInput;
         rawText?: string;
@@ -98,6 +102,12 @@ export async function POST(req: NextRequest) {
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (err) {
+    if (err instanceof PayloadTooLargeError) {
+      return NextResponse.json(
+        { error: "Request payload exceeds stage-4 size limit" },
+        { status: 413, headers: { "Cache-Control": "no-store" } }
+      );
+    }
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to analyze invoice" },
       { status: 400 }

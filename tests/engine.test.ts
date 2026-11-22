@@ -500,6 +500,15 @@ test("Fractional quantities (<1), 0% GST slabs, and honest 0-paise manual fallba
   const ver = verifyInvoicePipeline(unparseable);
   assert.equal(ver.exportEligible, false);
   assert.equal(ver.recommendedAction, "owner_confirmation_required");
+
+  // Custom JSON uploads must never spoof bundled scenario IDs
+  const spoofedJson = JSON.stringify({
+    id: "SCN-01-KIRANA-SHORT",
+    lines: parsedCustom.lines,
+  });
+  const isolatedJson = parseCustomInvoiceText(spoofedJson);
+  assert.ok(isolatedJson.id.startsWith("UPL-"));
+  assert.notEqual(isolatedJson.id, "SCN-01-KIRANA-SHORT");
 });
 
 test("Prompt-injected OCR output never triggers Groq LLM structurer even when GROQ_API_KEY is set", async () => {
@@ -552,11 +561,11 @@ test("Prompt-injected OCR output never triggers Groq LLM structurer even when GR
   }
 });
 
-test("Image clarity blocks decompression bombs and upload routes reject >10 MiB Content-Length early", async () => {
+test("Image clarity blocks decompression bombs and invalid bytes, 0-row OCR forces 0 paise, and streamed uploads enforce limits without Content-Length", async () => {
   const pyBomb = [
     "import base64, io",
     "from PIL import Image",
-    "img = Image.new('L', (6000, 6000), 255)",
+    "img = Image.new('L', (10000, 10000), 255)",
     "buf = io.BytesIO()",
     "img.save(buf, format='PNG')",
     "print(base64.b64encode(buf.getvalue()).decode())",
@@ -567,29 +576,96 @@ test("Image clarity blocks decompression bombs and upload routes reject >10 MiB 
   assert.equal(bombRes.clarityMethod, "python_pil_laplacian_3x3");
   assert.equal(bombRes.clarityScore, 0);
 
-  const oversizedLen = String(11 * 1024 * 1024);
-  const analyzeReq = new NextRequest("http://localhost:4290/api/analyze", {
+  const corruptRes = await scoreImageClarity(Buffer.from("not-a-valid-png-header-corrupt-bytes", "utf8"));
+  assert.equal(corruptRes.clarityMethod, "python_pil_laplacian_3x3");
+  assert.equal(corruptRes.clarityScore, 0);
+
+  // 0-row OCR fallback must zero out header totals so declaredGrandTotalPaise stays 0
+  const pyHeaderOnly = [
+    "import base64, io, os",
+    "from PIL import Image, ImageDraw, ImageFont",
+    "img = Image.new('RGB', (1000, 500), 'white')",
+    "d = ImageDraw.Draw(img)",
+    "font_path = '/System/Library/Fonts/Helvetica.ttc'",
+    "font = ImageFont.truetype(font_path, 26) if os.path.exists(font_path) else ImageFont.load_default()",
+    "d.text((50, 90), 'RANDOM RECEIPT MEMO', font=font, fill='black')",
+    "d.text((50, 170), 'Grand Total: Rs. 5,000.00', font=font, fill='black')",
+    "buf = io.BytesIO()",
+    "img.save(buf, format='PNG')",
+    "print(base64.b64encode(buf.getvalue()).decode())",
+  ].join("\n");
+  const headerOnlyBuf = Buffer.from(execFileSync(pyBin, ["-c", pyHeaderOnly], { encoding: "utf8" }).trim(), "base64");
+  const prevKey0 = process.env.GROQ_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  try {
+    const manualRes = await extractAndParseInvoiceImage(headerOnlyBuf, "memo-only.png");
+    assert.equal(manualRes.extractKind, "image_ocr_manual_fallback");
+    assert.equal(manualRes.invoice.declaredTaxableSubtotalPaise, "0");
+    assert.equal(manualRes.invoice.declaredTotalTaxPaise, "0");
+    assert.equal(manualRes.invoice.declaredGrandTotalPaise, "0");
+    assert.equal(manualRes.invoice.roundOffPaise, "0");
+    assert.equal(verifyInvoicePipeline(manualRes.invoice).exportEligible, false);
+  } finally {
+    if (prevKey0 !== undefined) process.env.GROQ_API_KEY = prevKey0;
+  }
+
+  // Streamed payload exceeding 10 MiB WITHOUT Content-Length header
+  const makeChunkStream = (totalBytes: number) =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        const chunk = new Uint8Array(1024 * 1024);
+        let sent = 0;
+        while (sent < totalBytes) {
+          const slice = Math.min(chunk.byteLength, totalBytes - sent);
+          controller.enqueue(slice === chunk.byteLength ? chunk : chunk.subarray(0, slice));
+          sent += slice;
+        }
+        controller.close();
+      },
+    });
+
+  const analyzeStreamReq = new NextRequest("http://localhost:4290/api/analyze", {
     method: "POST",
-    headers: {
-      "content-type": "multipart/form-data; boundary=x",
-      "content-length": oversizedLen,
-    },
+    headers: { "content-type": "multipart/form-data; boundary=x" },
+    body: makeChunkStream(11 * 1024 * 1024),
+    duplex: "half",
+  } as RequestInit);
+  const analyzeStreamResp = await analyzePost(analyzeStreamReq);
+  assert.equal(analyzeStreamResp.status, 413);
+
+  const jsonStreamReq = new NextRequest("http://localhost:4290/api/analyze", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: makeChunkStream(3 * 1024 * 1024),
+    duplex: "half",
+  } as RequestInit);
+  const jsonStreamResp = await analyzePost(jsonStreamReq);
+  assert.equal(jsonStreamResp.status, 413);
+
+  // Normal multipart request parsed via buffered stream succeeds
+  const validForm = new FormData();
+  validForm.append("file", new File(["Toor Dal | 0713 | 2 | kg | 120.00 | 5%"], "bill.csv", { type: "text/csv" }));
+  const validReq = new NextRequest("http://localhost:4290/api/analyze", {
+    method: "POST",
+    body: validForm,
   });
-  const analyzeResp = await analyzePost(analyzeReq);
-  assert.equal(analyzeResp.status, 413);
+  const validResp = await analyzePost(validReq);
+  assert.equal(validResp.status, 200);
+  const validData = (await validResp.json()) as { extractKind: string; invoice: InvoiceInput };
+  assert.equal(validData.extractKind, "csv");
+  assert.equal(validData.invoice.declaredGrandTotalPaise, "25200");
 
   const prevKey = process.env.GROQ_API_KEY;
   process.env.GROQ_API_KEY = "unit-test-key-placeholder";
   try {
-    const transcribeReq = new NextRequest("http://localhost:4290/api/transcribe", {
+    const transcribeStreamReq = new NextRequest("http://localhost:4290/api/transcribe", {
       method: "POST",
-      headers: {
-        "content-type": "multipart/form-data; boundary=x",
-        "content-length": oversizedLen,
-      },
-    });
-    const transcribeResp = await transcribePost(transcribeReq);
-    assert.equal(transcribeResp.status, 413);
+      headers: { "content-type": "multipart/form-data; boundary=x" },
+      body: makeChunkStream(11 * 1024 * 1024),
+      duplex: "half",
+    } as RequestInit);
+    const transcribeStreamResp = await transcribePost(transcribeStreamReq);
+    assert.equal(transcribeStreamResp.status, 413);
   } finally {
     if (prevKey !== undefined) {
       process.env.GROQ_API_KEY = prevKey;

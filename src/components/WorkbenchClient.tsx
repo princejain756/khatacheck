@@ -405,7 +405,7 @@ export function WorkbenchClient({
     if (resp.ok) setResult(data.verification);
   };
 
-  const isBundledScenario = scenarios.some((s) => s.id === invoice.id);
+  const isBundledScenario = selectedId === invoice.id && scenarios.some((s) => s.id === invoice.id);
   const isLedgerApproved = approvedIds.includes(invoice.id);
   const tallyApproved = isBundledScenario && isLedgerApproved;
 

@@ -382,7 +382,7 @@ export function computeAutomationBiasMonitor(events: AuditLedgerEvent[]): Automa
   let statusText = `Formal alert suppressed below ${minThreshold} completed decisions (n=${completedCount}).`;
   if (thresholdMet) {
     statusText = alertActive
-      ? `AUTOMATION BIAS WARNING: Approval rate ${approvalRatePct}% (>95%) with ${(medianDwellMs / 1000).toFixed(2)}s median dwell (<3.0s). Open-crop gate forced.`
+      ? `AUTOMATION BIAS WARNING: Approval rate ${approvalRatePct}% (>95%) with ${(medianDwellMs / 1000).toFixed(2)}s median dwell (<3.0s). Human review warning raised.`
       : `Healthy human oversight: Approval rate ${approvalRatePct}% and ${(medianDwellMs / 1000).toFixed(1)}s median foreground dwell across n=${completedCount} decisions.`;
   }
 
