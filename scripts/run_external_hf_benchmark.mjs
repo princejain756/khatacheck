@@ -35,25 +35,36 @@ function rupeeToPaiseStr(val) {
 function isDivyaLabelMathValid(lbl) {
   if (!lbl || !Array.isArray(lbl.line_items) || !lbl.totals) return false;
   let sumTaxable = 0;
-  let sumTax = 0;
+  let sumLineTax = 0;
+  let sumExpectedTax = 0;
+  let hasPerLineTax = false;
   for (const item of lbl.line_items) {
     const qty = Number(item.quantity || 0);
     const rate = Number(item.rate || 0);
     const taxable = Number(item.taxable_value || 0);
     const gstRate = Number(item.gst_rate || 0);
+    const itemHasTax =
+      item.cgst_amount !== null || item.sgst_amount !== null || item.igst_amount !== null;
+    if (itemHasTax) hasPerLineTax = true;
     const cgst = Number(item.cgst_amount || 0);
     const sgst = Number(item.sgst_amount || 0);
     const igst = Number(item.igst_amount || 0);
     const lineTax = cgst + sgst + igst;
+    const expTax = (taxable * gstRate) / 100;
     if (Math.abs(qty * rate - taxable) > 0.05) return false;
-    if (Math.abs((taxable * gstRate) / 100 - lineTax) > 0.05) return false;
+    if (itemHasTax && Math.abs(expTax - lineTax) > 0.05) return false;
     sumTaxable += taxable;
-    sumTax += lineTax;
+    sumLineTax += lineTax;
+    sumExpectedTax += expTax;
   }
+  const totalsTax =
+    Number(lbl.totals.cgst || 0) + Number(lbl.totals.sgst || 0) + Number(lbl.totals.igst || 0);
+  const effectiveTax = hasPerLineTax ? sumLineTax : totalsTax;
+  if (!hasPerLineTax && Math.abs(sumExpectedTax - totalsTax) > 0.2) return false;
   const roundOff = Number(lbl.totals.round_off || 0);
   const grandTotal = Number(lbl.totals.grand_total || 0);
   if (Math.abs(sumTaxable - Number(lbl.totals.taxable_value || 0)) > 0.05) return false;
-  if (Math.abs(sumTaxable + sumTax + roundOff - grandTotal) > 0.05) return false;
+  if (Math.abs(sumTaxable + effectiveTax + roundOff - grandTotal) > 0.05) return false;
   return true;
 }
 
@@ -461,6 +472,11 @@ async function main() {
     bySplit: {
       synthetic: summarizeSubset(synItems),
       regional: summarizeSubset(regItems),
+    },
+    byDegradationLevel: {
+      clean: summarizeSubset(cleanItems.filter((r) => r.level === "clean")),
+      scan: summarizeSubset(cleanItems.filter((r) => r.level === "scan")),
+      photo: summarizeSubset(cleanItems.filter((r) => r.level === "photo")),
     },
   };
 

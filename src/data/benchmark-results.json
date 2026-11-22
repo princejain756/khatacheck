@@ -1,6 +1,6 @@
 {
-  "runId": "KC-BENCH-1795368335419",
-  "executedAtIso": "2026-11-22T17:25:35.419Z",
+  "runId": "KC-BENCH-1795368695435",
+  "executedAtIso": "2026-11-22T17:31:35.435Z",
   "seed": 1263026516,
   "generatorVersion": "fixture-generator-v1",
   "ruleBundleVersion": "2026.11.v1-synthetic-demo",
@@ -305,9 +305,9 @@
     "scopeNote": "Measured in-process synthetic engine compute across 5 full passes (2,500 invoice runs), excluding network IO and live OCR/ASR latency.",
     "passes": 5,
     "samplesCount": 2500,
-    "p50Ms": 0.022,
+    "p50Ms": 0.021,
     "p95Ms": 0.062,
-    "maxMs": 0.572,
+    "maxMs": 0.492,
     "manualBaselineActiveMinRange": [
       12,
       25
