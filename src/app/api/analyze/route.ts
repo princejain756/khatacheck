@@ -5,8 +5,22 @@ import type { OcrMeta } from "@/lib/ocr-extractor";
 import type { InvoiceInput } from "@/lib/types";
 import { analyzeUploadedBuffer, parseCustomInvoiceText } from "@/lib/upload-analyzer";
 
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_MULTIPART_BYTES = MAX_UPLOAD_BYTES + 64 * 1024;
+
 export async function POST(req: NextRequest) {
   try {
+    const rawContentLen = req.headers.get("content-length");
+    if (rawContentLen) {
+      const contentLen = Number(rawContentLen);
+      if (Number.isFinite(contentLen) && contentLen > MAX_MULTIPART_BYTES) {
+        return NextResponse.json(
+          { error: "Request payload exceeds 10 MiB stage-4 demo limit" },
+          { status: 413, headers: { "Cache-Control": "no-store" } }
+        );
+      }
+    }
+
     const contentType = req.headers.get("content-type") || "";
     let invoice: InvoiceInput | null = null;
     let enablePiiScrub = true;
@@ -23,7 +37,7 @@ export async function POST(req: NextRequest) {
         if (file.size === 0) {
           return NextResponse.json({ error: "Uploaded file is empty" }, { status: 400 });
         }
-        if (file.size > 10 * 1024 * 1024) {
+        if (file.size > MAX_UPLOAD_BYTES) {
           return NextResponse.json({ error: "File exceeds 10 MiB stage-4 demo limit" }, { status: 400 });
         }
         const buf = Buffer.from(await file.arrayBuffer());

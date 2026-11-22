@@ -405,7 +405,9 @@ export function WorkbenchClient({
     if (resp.ok) setResult(data.verification);
   };
 
-  const tallyApproved = approvedIds.includes(invoice.id);
+  const isBundledScenario = scenarios.some((s) => s.id === invoice.id);
+  const isLedgerApproved = approvedIds.includes(invoice.id);
+  const tallyApproved = isBundledScenario && isLedgerApproved;
 
   return (
     <div className="space-y-5">
@@ -431,11 +433,17 @@ export function WorkbenchClient({
             <button
               type="button"
               disabled
-              title="Record store owner approval below to enable Tally Sandbox XML export"
+              title={
+                isLedgerApproved && !isBundledScenario
+                  ? "Tally Sandbox XML export supports the 6 bundled scenarios; custom uploads are logged in the SHA-256 audit ledger"
+                  : "Record store owner approval below to enable Tally Sandbox XML export"
+              }
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface border border-line type-pill text-faint opacity-60 cursor-not-allowed"
             >
               <Lock className="w-3.5 h-3.5" />
-              Tally XML (Approval Required)
+              {isLedgerApproved && !isBundledScenario
+                ? "Tally XML (Bundled Scenarios)"
+                : "Tally XML (Approval Required)"}
             </button>
           )}
           <a

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { scrubPiiForModelEgress } from "@/lib/dpdp-privacy";
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+const MAX_MULTIPART_BYTES = MAX_AUDIO_BYTES + 64 * 1024;
 const WHISPER_MODEL = "whisper-large-v3-turbo";
 
 const EXT_TO_MIME: Readonly<Record<string, string>> = {
@@ -40,7 +41,7 @@ function resolveAudioMeta(filename: string, mimeType: string): { safeName: strin
   for (const [ext, canonicalMime] of Object.entries(EXT_TO_MIME)) {
     if (lowerName.endsWith(ext)) {
       return {
-        safeName: filename || `voice_note${ext}`,
+        safeName: `voice_note${ext}`,
         safeMime: baseMime || canonicalMime,
       };
     }
@@ -67,6 +68,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const rawContentLen = req.headers.get("content-length");
+    if (rawContentLen) {
+      const contentLen = Number(rawContentLen);
+      if (Number.isFinite(contentLen) && contentLen > MAX_MULTIPART_BYTES) {
+        return NextResponse.json(
+          { error: "Request payload exceeds 10 MiB limit" },
+          { status: 413, headers: { "Cache-Control": "no-store" } }
+        );
+      }
+    }
+
     const contentType = req.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
       return NextResponse.json(

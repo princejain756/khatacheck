@@ -118,8 +118,10 @@ export function parseCustomInvoiceText(
       const qtyNum = Number(parts[2]);
       const unit = parts[3] || "pcs";
       const ratePaise = parseINRToPaise(parts[4]);
-      const gstPct = Number((parts[5] ?? "5").replace("%", "")) || 5;
-      const qtyMilli = Math.max(1000, Math.round((Number.isFinite(qtyNum) ? qtyNum : 1) * 1000));
+      const rawGst = (parts[5] ?? "5").replace("%", "").trim();
+      const parsedGst = rawGst !== "" ? Number(rawGst) : 5;
+      const gstPct = Number.isFinite(parsedGst) && parsedGst >= 0 ? parsedGst : 5;
+      const qtyMilli = Math.max(1, Math.round((Number.isFinite(qtyNum) && qtyNum > 0 ? qtyNum : 1) * 1000));
       const taxable = halfUpDiv(BigInt(qtyMilli) * ratePaise, 1000n);
       const bps = Math.round(gstPct * 100);
       const halfBps = Math.floor(bps / 2);
@@ -200,28 +202,28 @@ export function parseCustomInvoiceText(
       };
     }
 
-    // Fallback single structured manual line so arbitrary uploaded text is still inspected for DPDP + prompt guard
+    // Honest 0-paise manual fallback so unparseable custom text/PDF/CSV still enters DPDP + prompt-guard inspection without fabricating Rs 1,050
     lines.push({
       lineNumber: 1,
-      sku: "CUSTOM-TEXT-LINE",
-      description: trimmed.slice(0, 96) || "Manual Uploaded Line Item",
-      hsnCode: "0713",
-      qtyMilli: 10000,
-      unit: "kg",
-      unitRatePaise: "10000",
+      sku: "CUSTOM-MANUAL-REVIEW",
+      description: trimmed.slice(0, 96) || "Manual Review Required (0 lines parsed)",
+      hsnCode: "0000",
+      qtyMilli: 1000,
+      unit: "pcs",
+      unitRatePaise: "0",
       discountPaise: "0",
-      declaredTaxablePaise: "100000",
-      declaredCgstBps: 250,
-      declaredSgstBps: 250,
+      declaredTaxablePaise: "0",
+      declaredCgstBps: 0,
+      declaredSgstBps: 0,
       declaredIgstBps: 0,
-      declaredCgstPaise: "2500",
-      declaredSgstPaise: "2500",
+      declaredCgstPaise: "0",
+      declaredSgstPaise: "0",
       declaredIgstPaise: "0",
-      declaredLineTotalPaise: "105000",
-      ocrConfidence: 0.82,
+      declaredLineTotalPaise: "0",
+      ocrConfidence: 0.25,
     });
-    totalTaxable = 100000n;
-    totalTax = 5000n;
+    totalTaxable = 0n;
+    totalTax = 0n;
   }
 
   return {

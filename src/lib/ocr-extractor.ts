@@ -215,7 +215,7 @@ function buildInvoiceLine(params: {
   isInterstate: boolean;
   ocrConfidence: number;
 }): InvoiceLineInput {
-  const qtyMilli = Math.max(1000, Math.round(params.qty * 1000));
+  const qtyMilli = Math.max(1, Math.round(params.qty * 1000));
   const gross = halfUpDiv(BigInt(qtyMilli) * params.unitRatePaise, 1000n);
   const taxable = params.declaredTaxablePaise ?? (gross > params.discountPaise ? gross - params.discountPaise : gross);
 
@@ -940,7 +940,10 @@ function runTesseractCli(
   });
 }
 
-async function runTesseractJsFallback(buf: Buffer): Promise<{ text: string; confidence: number }> {
+async function runTesseractJsFallback(
+  buf: Buffer,
+  timeoutMs = 25000
+): Promise<{ text: string; confidence: number }> {
   const { createWorker, PSM } = await import("tesseract.js");
   const cachePath = path.join(os.tmpdir(), "khatacheck-tessdata");
   fs.mkdirSync(cachePath, { recursive: true });
@@ -960,15 +963,23 @@ async function runTesseractJsFallback(buf: Buffer): Promise<{ text: string; conf
     ...(fs.existsSync(localWorkerPath) ? { workerPath: localWorkerPath } : {}),
   });
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
-    const res = await worker.recognize(buf);
+    const recognizePromise = worker.recognize(buf);
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`Tesseract.js OCR timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+    const res = await Promise.race([recognizePromise, timeoutPromise]);
     return {
       text: String(res.data.text || "").trim(),
       confidence: Number(res.data.confidence || 75),
     };
   } finally {
-    await worker.terminate();
+    if (timer) clearTimeout(timer);
+    await worker.terminate().catch(() => undefined);
   }
 }
 
@@ -1079,7 +1090,11 @@ async function structureScrubbedOcrWithGroq(
       const ratePaise = safeParsePaise(rateStr);
       if (!Number.isFinite(qty) || qty <= 0 || ratePaise === null || ratePaise <= 0n) continue;
 
-      const gstPctNum = Number(String(item.gstPct ?? "").replace("%", ""));
+      const rawGstStr =
+        item.gstPct !== undefined && item.gstPct !== null
+          ? String(item.gstPct).replace("%", "").trim()
+          : "";
+      const gstPctNum = rawGstStr !== "" ? Number(rawGstStr) : Number.NaN;
       const taxablePaise =
         item.taxableValue !== undefined ? safeParsePaise(String(item.taxableValue)) ?? undefined : undefined;
       const rawLineTotal = item.lineTotal ?? item.total;
@@ -1189,7 +1204,7 @@ export async function extractAndParseInvoiceImage(
   const ocr = await runLocalOcr(buf);
   // Mandatory DPDP PII scrub and untrusted-input scan on-server BEFORE any optional LLM call
   const scrubbed = scrubPiiForModelEgress(ocr.text);
-  scanUntrustedInvoiceText([{ field: "ocrRawText", text: ocr.text }]);
+  const ocrGuard = scanUntrustedInvoiceText([{ field: "ocrRawText", text: ocr.text }]);
 
   const detParsed = parseOcrInvoiceText(scrubbed.scrubbedText, {
     voiceTranscript: options?.voiceTranscript,
@@ -1201,7 +1216,8 @@ export async function extractAndParseInvoiceImage(
   let usedLlmStructurer = false;
 
   const needsLlmAssist =
-    process.env.GROQ_API_KEY?.trim() &&
+    !ocrGuard.blocked &&
+    Boolean(process.env.GROQ_API_KEY?.trim()) &&
     (detParsed.lines.length < 1 || detParsed.confidenceScore < 0.72);
 
   if (needsLlmAssist) {

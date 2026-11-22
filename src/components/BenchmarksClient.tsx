@@ -81,6 +81,42 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
       ? report.redTeam.sampleLogs
       : report.redTeam.sampleLogs.filter((item) => item.family === familyFilter);
 
+  const sharpImageRows = e2eReport
+    ? e2eReport.imageResults.filter((r) => r.expectedClarityPass)
+    : [];
+  const crispImageRows = sharpImageRows.filter((r) => r.kind === "crisp_generated");
+  const photoImageRows = sharpImageRows.filter((r) => r.kind === "real_photo");
+  const crispLinesExpected = crispImageRows.reduce((acc, r) => acc + r.expectedLineCount, 0);
+  const crispLinesExtracted = crispImageRows.reduce(
+    (acc, r) => acc + Math.min(r.extractedLineCount, r.expectedLineCount),
+    0
+  );
+  const photoLinesExpected = photoImageRows.reduce((acc, r) => acc + r.expectedLineCount, 0);
+  const photoLinesExtracted = photoImageRows.reduce(
+    (acc, r) => acc + Math.min(r.extractedLineCount, r.expectedLineCount),
+    0
+  );
+  const expectedLinesCount = sharpImageRows.reduce((acc, r) => acc + r.expectedLineCount, 0);
+  const extractedLinesCount = sharpImageRows.reduce(
+    (acc, r) => acc + Math.min(r.extractedLineCount, r.expectedLineCount),
+    0
+  );
+  const declaredGrandTotalMatchCount = sharpImageRows.filter((r) => r.grandTotalMatched).length;
+  const exactCategorySetMatchCount = e2eReport
+    ? e2eReport.imageResults.filter((r) => {
+        const exp = [...new Set(r.expectedFaultCategories)].sort().join("|");
+        const det = [...new Set(r.detectedCategories)].sort().join("|");
+        return exp === det;
+      }).length
+    : 0;
+  const exactCategorySetMatchPct =
+    e2eReport && e2eReport.imageResults.length > 0
+      ? Math.round((exactCategorySetMatchCount / e2eReport.imageResults.length) * 1000) / 10
+      : 0;
+  const targetFaultPassCount = e2eReport
+    ? e2eReport.imageResults.filter((r) => r.faultDetectionPassed).length
+    : 0;
+
   const gateChecklist = [
     {
       label: "Substantive Recall >= 94%",
@@ -492,12 +528,16 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
               </div>
             </div>
             <div className="rounded-lg border border-line bg-subtle/60 p-3">
-              <div className="type-kpi-label text-faint">OCR Line &amp; Grand Total Match</div>
+              <div className="type-kpi-label text-faint">OCR Line-Count Recall</div>
               <div className="type-section numeral text-ink mt-1">
-                {e2eReport.imageSummary.lineExtractionRecallPct}% / {e2eReport.imageSummary.grandTotalExactMatchPct}%
+                {e2eReport.imageSummary.lineExtractionRecallPct}% ({extractedLinesCount}/{expectedLinesCount})
               </div>
-              <div className="type-meta text-muted mt-0.5">
-                GSTIN {e2eReport.imageSummary.gstinMatchRatePct}% · Fault accuracy {e2eReport.imageSummary.faultAccuracyPct}%
+              <div className="type-meta text-muted mt-0.5 leading-snug">
+                {crispLinesExtracted}/{crispLinesExpected} crisp + {photoLinesExtracted}/{photoLinesExpected} photo ·
+                Declared Grand Total Match ({declaredGrandTotalMatchCount}/{sharpImageRows.length}) ·
+                Target-Fault {targetFaultPassCount}/{e2eReport.imageResults.length} ({e2eReport.imageSummary.faultAccuracyPct}%) ·
+                Exact Category-Set {exactCategorySetMatchCount}/{e2eReport.imageResults.length} ({exactCategorySetMatchPct}%) ·
+                GSTIN {e2eReport.imageSummary.gstinMatchRatePct}%
               </div>
             </div>
             <div className="rounded-lg border border-line bg-subtle/60 p-3">
