@@ -410,7 +410,7 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
               {e2eReport ? (
                 <>
                   <div className="rounded-lg bg-subtle p-2.5 border border-line">
-                    <div className="type-kpi-label text-faint">Live HTTP OCR (t0 -&gt; t_flag)</div>
+                    <div className="type-kpi-label text-faint">Live HTTP OCR API (t0 -&gt; JSON flag)</div>
                     <div className="type-section numeral text-ink mt-0.5">
                       {e2eReport.imageSummary.wallClockP50Ms} ms (p50)
                     </div>
@@ -553,7 +553,7 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
               </div>
             </div>
             <div className="rounded-lg border border-line bg-subtle/60 p-3">
-              <div className="type-kpi-label text-faint">OCR Wall-Clock (t0 -&gt; t_flag)</div>
+              <div className="type-kpi-label text-faint">OCR API Round-Trip (t0 -&gt; JSON flag)</div>
               <div className="type-section numeral text-ink mt-1">
                 p50 {e2eReport.imageSummary.wallClockP50Ms} ms
               </div>
@@ -619,7 +619,7 @@ export function BenchmarksClient({ initialReport, initialE2eReport }: Props) {
                     <th className="py-2 px-3 type-table-head text-right">Clarity</th>
                     <th className="py-2 px-3 type-table-head">Engine</th>
                     <th className="py-2 px-3 type-table-head text-right">Lines</th>
-                    <th className="py-2 px-3 type-table-head text-right">Wall-Clock</th>
+                    <th className="py-2 px-3 type-table-head text-right">API Round-Trip</th>
                     <th className="py-2 px-3 type-table-head text-right">Outcome</th>
                   </tr>
                 </thead>
