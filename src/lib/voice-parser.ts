@@ -35,26 +35,74 @@ const HINDI_NUMBER_WORDS: Readonly<Record<string, number>> = {
   hundred: 100,
 };
 
-const UNIT_WORDS = new Set([
-  "peti",
-  "carton",
-  "cartons",
-  "dabba",
-  "dabbe",
-  "bori",
-  "strip",
-  "strips",
-  "box",
-  "boxes",
-  "kg",
-  "ltr",
-  "pkt",
-  "pcs",
-  "piece",
-  "pieces",
-  "bundle",
-  "bundles",
-]);
+const CANONICAL_UNITS: Record<string, string> = {
+  peti: "peti",
+  carton: "carton",
+  cartons: "carton",
+  dabba: "dabba",
+  dabbe: "dabba",
+  bori: "bori",
+  bag: "bag",
+  bags: "bag",
+  strip: "strip",
+  strips: "strip",
+  box: "box",
+  boxes: "box",
+  kg: "kg",
+  kgs: "kg",
+  kilo: "kg",
+  kilos: "kg",
+  kilogram: "kg",
+  kilograms: "kg",
+  ltr: "ltr",
+  ltrs: "ltr",
+  liter: "ltr",
+  liters: "ltr",
+  litre: "ltr",
+  litres: "ltr",
+  pkt: "pkt",
+  pkts: "pkt",
+  packet: "pkt",
+  packets: "pkt",
+  pack: "pkt",
+  packs: "pkt",
+  pcs: "pcs",
+  pc: "pcs",
+  piece: "pcs",
+  pieces: "pcs",
+  nos: "pcs",
+  bundle: "bundle",
+  bundles: "bundle",
+  mtr: "mtr",
+  mtrs: "mtr",
+  meter: "mtr",
+  meters: "mtr",
+  metre: "mtr",
+  metres: "mtr",
+  tin: "tin",
+  tins: "tin",
+  bottle: "bottle",
+  bottles: "bottle",
+  btl: "bottle",
+  jar: "jar",
+  jars: "jar",
+  roll: "roll",
+  rolls: "roll",
+  unit: "unit",
+  units: "unit",
+  gram: "gram",
+  grams: "gram",
+  ml: "ml",
+};
+
+const UNIT_WORDS = new Set(Object.keys(CANONICAL_UNITS));
+
+export function canonicalizeVoiceUnit(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.trim().toLowerCase().replace(/[.,;:!?]/g, "");
+  if (!cleaned) return null;
+  return CANONICAL_UNITS[cleaned] ?? cleaned;
+}
 
 const SHORTAGE_CUES = /\b(?:kum|kam|short|shortage|missing|damaged?|broken|nahi\s+aaya|nhi\s+aaya|mili\s+nahi)\b/i;
 const NEGATION_CUES = /\b(?:short\s+nahi|nahi\s+short|no\s+shortage|all\s+received|poora\s+aaya|sab\s+theek)\b/i;
@@ -230,8 +278,8 @@ export function parseVoiceRemarks(
       for (let i = 0; i < tokens.length; i += 1) {
         const q = parseQtyToken(tokens[i]);
         if (q !== null) {
-          const next = tokens[i + 1]?.replace(/[.,]/g, "");
-          const prev = tokens[i - 1]?.replace(/[.,]/g, "");
+          const next = tokens[i + 1]?.replace(/[.,;:!?]/g, "");
+          const prev = tokens[i - 1]?.replace(/[.,;:!?]/g, "");
           if (next && UNIT_WORDS.has(next)) {
             foundQty = q;
             foundUnit = next;
@@ -249,6 +297,21 @@ export function parseVoiceRemarks(
       if (foundQty !== null && foundQty > 0) {
         const matched = findBestMatchingLine(clause, lines);
         if (matched) {
+          const spokenUnitCanon = canonicalizeVoiceUnit(foundUnit);
+          const lineUnitCanon = canonicalizeVoiceUnit(matched.unit);
+          if (spokenUnitCanon && lineUnitCanon && spokenUnitCanon !== lineUnitCanon) {
+            hits.push({
+              matchedLineNumber: matched.lineNumber,
+              sku: matched.sku,
+              kind: "unmatched_manual",
+              shortageQty: foundQty,
+              claimedRatePaise: null,
+              variancePaise: "0",
+              confirmationPrompt: `Unit mismatch on Line ${matched.lineNumber} (${matched.description}): spoken ${foundQty} ${foundUnit} vs billed unit ${matched.unit}. Enter manual conversion before raising debit note.`,
+              rawSpan: clause,
+            });
+            continue;
+          }
           const qtyMilli = BigInt(Math.round(foundQty * 1000));
           const billedQtyMilli = BigInt(matched.qtyMilli);
           const cappedQtyMilli = qtyMilli > billedQtyMilli ? billedQtyMilli : qtyMilli;

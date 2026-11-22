@@ -69,8 +69,8 @@ async function runImageCase(baseUrl, item) {
     method: "POST",
     body: form,
   });
-  const wallClockMs = Number((performance.now() - t0).toFixed(1));
   const data = await resp.json();
+  const wallClockMs = Number((performance.now() - t0).toFixed(1));
 
   if (!resp.ok) {
     throw new Error(`Analyze failed for ${item.caseId} (HTTP ${resp.status}): ${data.error || "unknown"}`);
@@ -141,8 +141,8 @@ async function runAudioCase(baseUrl, item) {
     method: "POST",
     body: form,
   });
-  const asrWallClockMs = Number((performance.now() - t0).toFixed(1));
   const asrData = await asrResp.json();
+  const asrWallClockMs = Number((performance.now() - t0).toFixed(1));
 
   if (!asrResp.ok) {
     throw new Error(`Transcribe failed for ${item.caseId} (HTTP ${asrResp.status}): ${asrData.error || "unknown"}`);
@@ -158,9 +158,9 @@ async function runAudioCase(baseUrl, item) {
       enablePiiScrub: true,
     }),
   });
+  const analyzeData = await analyzeResp.json();
   const analyzeWallClockMs = Number((performance.now() - t1).toFixed(1));
   const totalWallClockMs = Number((performance.now() - t0).toFixed(1));
-  const analyzeData = await analyzeResp.json();
 
   if (!analyzeResp.ok) {
     throw new Error(
@@ -176,22 +176,42 @@ async function runAudioCase(baseUrl, item) {
     Number(asrData.redactionCount ?? 0),
     Number(verification.dpdpRedactionCount ?? 0)
   );
+  const hasUnmatchedManual = matches.some((m) => m.kind === "unmatched_manual");
+  const invoiceLines = Array.isArray(analyzeData.invoice?.lines) ? analyzeData.invoice.lines : [];
+  const matchedInvoiceLine = item.expectedSku
+    ? invoiceLines.find((l) => l.sku === item.expectedSku) || null
+    : null;
+  const expectedUnitOk =
+    !item.expectedUnit ||
+    (matchedInvoiceLine !== null &&
+      String(matchedInvoiceLine.unit || "").trim().toLowerCase() ===
+        String(item.expectedUnit).trim().toLowerCase());
 
   let matchedExpectation = false;
   if (item.expectedShortageKind === "none") {
-    matchedExpectation = matches.length === 0 && Number(asrData.redactionCount ?? 0) >= item.expectedRedactionCount;
+    matchedExpectation =
+      matches.length === 0 && Number(asrData.redactionCount ?? 0) >= item.expectedRedactionCount;
   } else if (item.expectedShortageKind === "shortage") {
     matchedExpectation =
+      !hasUnmatchedManual &&
+      expectedUnitOk &&
       matches.some(
         (m) =>
           m.kind === "shortage" &&
           m.sku === item.expectedSku &&
-          Number(m.shortageQty) === item.expectedQty
-      ) && Number(asrData.redactionCount ?? 0) >= item.expectedRedactionCount;
+          Number(m.shortageQty) === item.expectedQty &&
+          BigInt(String(m.variancePaise || "0")) > 0n
+      ) &&
+      Number(asrData.redactionCount ?? 0) >= item.expectedRedactionCount;
   } else if (item.expectedShortageKind === "rate_jump") {
-    matchedExpectation = matches.some(
-      (m) => m.kind === "rate_jump" && m.sku === item.expectedSku
-    );
+    matchedExpectation =
+      !hasUnmatchedManual &&
+      matches.some(
+        (m) =>
+          m.kind === "rate_jump" &&
+          m.sku === item.expectedSku &&
+          BigInt(String(m.variancePaise || "0")) > 0n
+      );
   }
 
   return {

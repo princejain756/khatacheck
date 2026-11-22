@@ -29,7 +29,7 @@ import {
 } from "../src/lib/governance-ledger";
 import { scanUntrustedInvoiceText } from "../src/lib/prompt-guard";
 import { parseCustomInvoiceText } from "../src/lib/upload-analyzer";
-import { parseVoiceRemarks } from "../src/lib/voice-parser";
+import { canonicalizeVoiceUnit, parseVoiceRemarks } from "../src/lib/voice-parser";
 import type { AuditLedgerEvent, InvoiceInput } from "../src/lib/types";
 
 test("GSTIN Mod-36 checksum validates official synthetic vectors and rejects tampered digits", () => {
@@ -689,4 +689,51 @@ test("Image clarity blocks decompression bombs and invalid bytes, 0-row OCR forc
       delete process.env.GROQ_API_KEY;
     }
   }
+});
+
+test("Voice parser normalizes units and routes mismatched spoken units to unmatched_manual", () => {
+  assert.equal(canonicalizeVoiceUnit("bags"), "bag");
+  assert.equal(canonicalizeVoiceUnit("kilograms"), "kg");
+  assert.equal(canonicalizeVoiceUnit("packets"), "pkt");
+  assert.equal(canonicalizeVoiceUnit("litres"), "ltr");
+
+  const scn01 = DEMO_SCENARIOS.find((s) => s.id === "SCN-01-KIRANA-SHORT");
+  assert.ok(scn01);
+  const kirana = scn01.invoice;
+
+  const bagHits = parseVoiceRemarks("Five bags of Arhar Dal kum hai", kirana.lines);
+  assert.equal(bagHits.length, 1);
+  assert.equal(bagHits[0].kind, "unmatched_manual");
+  assert.equal(bagHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(bagHits[0].shortageQty, 5);
+  assert.equal(bagHits[0].variancePaise, "0");
+  assert.equal(bagHits[0].confirmationPrompt.includes("Unit mismatch"), true);
+
+  const bagVerify = verifyInvoicePipeline(
+    { ...kirana, voiceTranscriptRaw: "Five bags of Arhar Dal kum hai" },
+    {
+      vendorHistory: DEMO_VENDOR_HISTORY,
+      priorBills: DEMO_PRIOR_BILLS,
+      enablePiiScrub: true,
+    }
+  );
+  assert.equal(bagVerify.voiceMatches[0]?.kind, "unmatched_manual");
+  assert.equal(bagVerify.faults.filter((f) => f.category === "voice_shortage").length, 0);
+
+  const kgHits = parseVoiceRemarks("Five kilograms of Arhar Dal kum hai", kirana.lines);
+  assert.equal(kgHits.length, 1);
+  assert.equal(kgHits[0].kind, "shortage");
+  assert.equal(kgHits[0].sku, "DAL-TOOR-KG");
+  assert.equal(kgHits[0].shortageQty, 5);
+  assert.equal(kgHits[0].variancePaise, "61950");
+
+  const chilliHits = parseVoiceRemarks(
+    "Bhaiya 2 packets of red chili powder kum aaya hai, missing hai",
+    kirana.lines
+  );
+  assert.equal(chilliHits.length, 1);
+  assert.equal(chilliHits[0].kind, "shortage");
+  assert.equal(chilliHits[0].sku, "SPICE-CHILLI-500G");
+  assert.equal(chilliHits[0].shortageQty, 2);
+  assert.equal(chilliHits[0].variancePaise, "16720");
 });

@@ -318,6 +318,7 @@
       "expectedShortageKind": "shortage",
       "expectedSku": "DAL-TOOR-KG",
       "expectedQty": 5,
+      "expectedUnit": "kg",
       "expectedRedactionCount": 0
     },
     {
@@ -328,6 +329,7 @@
       "expectedShortageKind": "shortage",
       "expectedSku": "MED-AMOX-STRIP",
       "expectedQty": 8,
+      "expectedUnit": "strip",
       "expectedRedactionCount": 0
     },
     {
@@ -348,6 +350,7 @@
       "expectedShortageKind": "shortage",
       "expectedSku": "SPICE-CHILLI-500G",
       "expectedQty": 2,
+      "expectedUnit": "pkt",
       "expectedRedactionCount": 1
     },
     {
