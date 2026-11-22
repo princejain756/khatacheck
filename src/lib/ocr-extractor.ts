@@ -944,7 +944,6 @@ async function runTesseractJsFallback(
   buf: Buffer,
   timeoutMs = 25000
 ): Promise<{ text: string; confidence: number }> {
-  const { createWorker, PSM } = await import("tesseract.js");
   const cachePath = path.join(os.tmpdir(), "khatacheck-tessdata");
   fs.mkdirSync(cachePath, { recursive: true });
 
@@ -958,11 +957,13 @@ async function runTesseractJsFallback(
     "index.js"
   );
 
-  const workerRef: { current: Awaited<ReturnType<typeof createWorker>> | null } = { current: null };
+  type TesseractWorker = Awaited<ReturnType<(typeof import("tesseract.js"))["createWorker"]>>;
+  const workerRef: { current: TesseractWorker | null } = { current: null };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let timedOut = false;
 
   const workPromise = (async () => {
+    const { createWorker, PSM } = await import("tesseract.js");
     const w = await createWorker("eng", 1, {
       cachePath,
       ...(fs.existsSync(localWorkerPath) ? { workerPath: localWorkerPath } : {}),
@@ -979,6 +980,8 @@ async function runTesseractJsFallback(
       confidence: Number(res.data.confidence || 75),
     };
   })();
+  // Prevent unhandled rejection if workPromise settles after timeoutPromise already won Promise.race
+  workPromise.catch(() => undefined);
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {

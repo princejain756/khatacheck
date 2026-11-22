@@ -26,7 +26,7 @@ All quantitative accuracy and security metrics below come from our local seeded 
 - **Clean Bill & Clarity Gates**: Clean false-positive rate `0%`, Clarity abstentions `40 / 40`, Deterministic BigInt math accuracy `100%` (`460 / 460`).
 - **5-Subgroup Fairness Launch Gate (`<= 5.0%` rule)**: Macro mean F1 `99.4%`, max F1 gap below mean `1.5%`, max recall gap below mean `2.9%` (`handwritten_challan` stratum).
 - **Red-Team Resilience**: `50 / 50` blocked/isolated, `50 / 50` tax integrity unchanged, `50 / 50` zero PII leaks.
-- **Latency & Pilot Status**: In-process deterministic compute across `2,500` runs (`5` passes): `p50 = 0.015 ms`, `p95 = 0.023 ms`, `max = 0.154 ms`. Manual kirana reconciliation baseline runs `12 to 25 min` active time per bill plus `7 to 30 days` GST filing lag. The registered 10-store, 4-week Bengaluru shadow pilot is currently `NOT_RUN`, with `t0 -> t_flag` telemetry instrumented and ready for launch Gate 5 sign-off.
+- **Latency & Pilot Status**: In-process deterministic compute across `2,500` runs (`5` passes): `p50 = 0.015 ms`, `p95 = 0.023 ms`, `max = 0.2 ms`. Manual kirana reconciliation baseline runs `12 to 25 min` active time per bill plus `7 to 30 days` GST filing lag. The registered 10-store, 4-week Bengaluru shadow pilot is currently `NOT_RUN`, with `t0 -> t_flag` telemetry instrumented and ready for launch Gate 5 sign-off.
 
 ## Reproduction
 

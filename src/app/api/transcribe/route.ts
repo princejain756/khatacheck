@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
     if (rawFile.size > MAX_AUDIO_BYTES) {
       return NextResponse.json(
         { error: "Audio clip exceeds 10 MiB limit" },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
+        { status: 413, headers: { "Cache-Control": "no-store" } }
       );
     }
 

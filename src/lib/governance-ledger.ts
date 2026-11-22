@@ -377,7 +377,7 @@ export function computeAutomationBiasMonitor(events: AuditLedgerEvent[]): Automa
 
   const minThreshold = 50;
   const thresholdMet = completedCount >= minThreshold;
-  const alertActive = thresholdMet && approvalRatePct > 95 && medianDwellMs > 0 && medianDwellMs < 3000;
+  const alertActive = thresholdMet && approvedCount * 100 > 95 * completedCount && medianDwellMs > 0 && medianDwellMs < 3000;
 
   let statusText = `Formal alert suppressed below ${minThreshold} completed decisions (n=${completedCount}).`;
   if (thresholdMet) {

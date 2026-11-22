@@ -38,10 +38,16 @@ export async function POST(req: NextRequest) {
 
       if (file && file instanceof File) {
         if (file.size === 0) {
-          return NextResponse.json({ error: "Uploaded file is empty" }, { status: 400 });
+          return NextResponse.json(
+            { error: "Uploaded file is empty" },
+            { status: 400, headers: { "Cache-Control": "no-store" } }
+          );
         }
         if (file.size > MAX_UPLOAD_BYTES) {
-          return NextResponse.json({ error: "File exceeds 10 MiB stage-4 demo limit" }, { status: 413 });
+          return NextResponse.json(
+            { error: "File exceeds 10 MiB stage-4 demo limit" },
+            { status: 413, headers: { "Cache-Control": "no-store" } }
+          );
         }
         const buf = Buffer.from(await file.arrayBuffer());
         const analyzed = await analyzeUploadedBuffer(buf, file.name, {

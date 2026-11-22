@@ -666,6 +666,22 @@ test("Image clarity blocks decompression bombs and invalid bytes, 0-row OCR forc
     } as RequestInit);
     const transcribeStreamResp = await transcribePost(transcribeStreamReq);
     assert.equal(transcribeStreamResp.status, 413);
+
+    // File > 10 MiB inside the 10 MiB + 64 KiB multipart envelope must also return HTTP 413
+    const overFileSize = 10 * 1024 * 1024 + 1024;
+    const overImgForm = new FormData();
+    overImgForm.append("file", new File([new Uint8Array(overFileSize)], "big.csv", { type: "text/csv" }));
+    const overAnalyzeResp = await analyzePost(
+      new NextRequest("http://localhost:4290/api/analyze", { method: "POST", body: overImgForm })
+    );
+    assert.equal(overAnalyzeResp.status, 413);
+
+    const overAudioForm = new FormData();
+    overAudioForm.append("file", new File([new Uint8Array(overFileSize)], "big.mp3", { type: "audio/mpeg" }));
+    const overTranscribeResp = await transcribePost(
+      new NextRequest("http://localhost:4290/api/transcribe", { method: "POST", body: overAudioForm })
+    );
+    assert.equal(overTranscribeResp.status, 413);
   } finally {
     if (prevKey !== undefined) {
       process.env.GROQ_API_KEY = prevKey;
