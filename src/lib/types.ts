@@ -608,3 +608,79 @@ export interface ExternalHfReport {
   };
   results: ExternalHfCaseResult[];
 }
+
+export interface RealSmeB2bCaseResult {
+  caseId: string;
+  category: string;
+  statePair: string;
+  docFormat: string;
+  expectedSchedule: string;
+  expectedHsnSacPrefix: string;
+  sha256Prefix8: string;
+  extractKind: string;
+  clarityScore: number;
+  wallClockMs: number;
+  lineCount: number;
+  vendorGstinExtractedAndValid: boolean;
+  dateAndScheduleMatched: boolean;
+  hsnSacMatched: boolean;
+  grandTotalMatched: boolean;
+  varianceNote: string;
+  piiRedactedOnServer: boolean;
+  faultRuleIds: string[];
+}
+
+export interface RealSmeValidationReport {
+  runId: string;
+  executedAtIso: string;
+  ruleBundleVersion: string;
+  scope: string;
+  tenStorePilotStatus: string;
+  frozenV20Baseline: {
+    rawPdfExtractedCount: number;
+    totalPdfs: number;
+    renderedPngLinesExtracted: number;
+    renderedPngTotalsMatched: number;
+    note: string;
+  };
+  v21AlphaZeroShot: {
+    totalPdfs: number;
+    extractedPdfOrScannedOcrCount: number;
+    vendorGstinValidCount: number;
+    dateAndScheduleMatchedCount: number;
+    hsnSacMatchedCount: number;
+    grandTotalExactMatchCount: number;
+    safeHandwrittenFallbackCount: number;
+    note: string;
+  };
+  v21RealB2bPdfSummary: {
+    totalPdfs: number;
+    uniqueVendors: number;
+    uniqueStates: number;
+    stateCodesCovered: string[];
+    digitalPdfCount: number;
+    scannedPdfCount: number;
+    preGst2Count: number;
+    postGst2Count: number;
+    extractedPdfOrScannedOcrCount: number;
+    vendorGstinValidCount: number;
+    dateAndScheduleMatchedCount: number;
+    hsnSacMatchedCount: number;
+    grandTotalExactMatchCount: number;
+    piiRedactedCasesCount: number;
+    wallClockP50Ms: number;
+    wallClockP95Ms: number;
+    wallClockMaxMs: number;
+  };
+  v21HandwrittenOodSummary: {
+    totalPhotos: number;
+    uniquePhysicalSlips: number;
+    clarityPassedCount: number;
+    safeManualFallbackCount: number;
+    hallucinatedTotalsCount: number;
+    ocrEmailSpaceDotFixedCount: number;
+    manualBillingErrorObservation: string;
+  };
+  manualTimingNote: string;
+  b2bCases: RealSmeB2bCaseResult[];
+}

@@ -889,6 +889,43 @@ function parseRowTokens(
     }
   }
 
+  if (
+    !handledNoLineTotal &&
+    postQtyNums.length >= 3 &&
+    pctValues.length >= 1
+  ) {
+    const rateVal = gstPct ?? pctValues[0];
+    const taxColCand = postQtyNums[postQtyNums.length - 2];
+    const taxableColCand = postQtyNums[postQtyNums.length - 1];
+    const prod = qty * rateRupees;
+    const expectedTaxRupees = (prod * rateVal) / 100;
+    if (
+      taxableColCand.val > taxColCand.val &&
+      Math.abs(prod - taxableColCand.val) <= 1.5 &&
+      Math.abs(expectedTaxRupees - taxColCand.val) <= 1.5
+    ) {
+      const taxableP = toPaise(taxableColCand);
+      const taxP = toPaise(taxColCand);
+      declaredTaxablePaise = taxableP;
+      if (headerLayout.hasIgstCol && !headerLayout.hasCgstCol && !headerLayout.hasSgstCol) {
+        declaredIgstPaise = taxP;
+        declaredCgstPaise = 0n;
+        declaredSgstPaise = 0n;
+        explicitSplitBps = { cgstBps: 0, sgstBps: 0, igstBps: Math.round(rateVal * 100) };
+      } else if (headerLayout.hasCgstCol || headerLayout.hasSgstCol) {
+        const halfTax = taxP / 2n;
+        declaredCgstPaise = halfTax;
+        declaredSgstPaise = taxP - halfTax;
+        declaredIgstPaise = 0n;
+        const totalBps = Math.round(rateVal * 100);
+        const halfBps = Math.floor(totalBps / 2);
+        explicitSplitBps = { cgstBps: halfBps, sgstBps: totalBps - halfBps, igstBps: 0 };
+      }
+      declaredLineTotalPaise = taxableP + taxP;
+      handledNoLineTotal = true;
+    }
+  }
+
   if (!handledNoLineTotal && postQtyNums.length >= 2) {
     const lastObj = postQtyNums[postQtyNums.length - 1];
     declaredLineTotalPaise = lastObj.paise ?? BigInt(Math.round(lastObj.val * 100));
@@ -1041,8 +1078,8 @@ export function extractGstins(lines: string[]): {
   gstinOcrAmbiguous: boolean;
 } {
   const strictRe = /\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z])\b/g;
-  const labelRe = /\bG[@O0]?STIN\b\s*[:=\-;'"\s]*([0-9A-Z]{14,16})/i;
-  const splitLabelRe = /\bG[@O0]?STIN\b\s*[:=\-;'"\s]*([0-9A-Z]{8,13})\s+([0-9A-Z]{2,7})\b/i;
+  const labelRe = /\bG[@O0]?ST(?:IN(?:\/UIN)?|N|\s*(?:NO\.?|#))\s*[:=\-;'"\s]*([0-9A-Z]{14,16})/i;
+  const splitLabelRe = /\bG[@O0]?ST(?:IN(?:\/UIN)?|N|\s*(?:NO\.?|#))\s*[:=\-;'"\s]*([0-9A-Z]{8,13})\s+([0-9A-Z]{2,7})\b/i;
   let section: "header" | "supplier" | "buyer" = "header";
   let vendorGstin = "";
   let buyerGstin = "";
@@ -1051,21 +1088,33 @@ export function extractGstins(lines: string[]): {
   const buyerCandidates: string[] = [];
 
   for (const raw of lines) {
-    const preparedRaw = raw.replace(/\b(G[@O0]?STIN)\s*[;:]\s*/gi, "$1: ");
+    const preparedRaw = raw.replace(/\b(G[@O0]?ST(?:IN(?:\/UIN)?|N|\s*(?:NO\.?|#)))\s*[;:]\s*/gi, "$1: ");
     const segments = preparedRaw
-      .split(/[|;]+/)
+      .split(/\s{4,}|[|;]+/)
       .flatMap((part) =>
-        part.split(/(?=\b(?:BUYER|BILL\s*TO|BILLED\s*TO|SHIP\s*TO|RECIPIENT|CUSTOMER|SUPPLIER|SELLER|VENDOR)\b)/i)
+        part.split(/(?=\b(?:BUYER|BILL\s*TO|BILLED\s*TO|SHIP\s*TO|CUSTOMER|CONSIGNEE|SUPPLIER|SELLER|VENDOR|SOLD\s*BY|ISSUED\s*BY|BILLED\s*BY|CONSIGNOR)\b)/i)
       )
       .map((s) => s.trim())
       .filter(Boolean);
 
     for (const seg of segments) {
       const upper = seg.toUpperCase();
-      if (/\b(?:BUYER|BILL\s*TO|BILLED\s*TO|SHIP\s*TO|RECIPIENT|CUSTOMER)\b/.test(upper)) {
+      const isRecipientCopyBanner = /\bFOR\s+RECIPIENT\b/.test(upper);
+      const isInlineCustomerGstin = /\b(?:GST(?:IN|N)?\s+OF\s+(?:CUSTOMER|BUYER)|CUSTOMER(?:'S)?\s+GST(?:IN|N|\s*NO\.?)?|BUYER\s+GST(?:IN|N|\s*NO\.?)?)\b/.test(
+        upper
+      );
+      let segSection = section;
+      if (isInlineCustomerGstin) {
+        segSection = "buyer";
+      } else if (
+        !isRecipientCopyBanner &&
+        /\b(?:BUYER|BILL\s*TO|BILLED\s*TO|SHIP\s*TO|RECIPIENT|CUSTOMER(?:\s+DETAILS)?|CONSIGNEE)\b/.test(upper)
+      ) {
         section = "buyer";
-      } else if (/\b(?:SUPPLIER|SELLER|VENDOR)\b|\bFROM\b/.test(upper)) {
+        segSection = "buyer";
+      } else if (/\b(?:SUPPLIER|SELLER|VENDOR|SOLD\s*BY|ISSUED\s*BY|BILLED\s*BY|CONSIGNOR)\b|\bFROM\b/.test(upper)) {
         section = "supplier";
+        segSection = "supplier";
       }
 
       const foundInLine: string[] = [];
@@ -1099,7 +1148,7 @@ export function extractGstins(lines: string[]): {
       }
 
       for (const gstin of foundInLine) {
-        if (section === "buyer") {
+        if (segSection === "buyer") {
           if (!buyerCandidates.includes(gstin)) buyerCandidates.push(gstin);
           if (!buyerGstin && gstin !== vendorGstin) {
             buyerGstin = gstin;
@@ -1116,6 +1165,8 @@ export function extractGstins(lines: string[]): {
 
   if (!vendorGstin && supplierCandidates.length > 0) {
     vendorGstin = supplierCandidates[0];
+  } else if (!vendorGstin && buyerCandidates.length >= 2) {
+    vendorGstin = buyerCandidates.find((g) => g !== buyerGstin) || "";
   }
   if (!buyerGstin) {
     buyerGstin =
@@ -1303,6 +1354,291 @@ function parseTableHeaderLayout(rawLines: string[]): TableHeaderLayout {
   return DEFAULT_TABLE_HEADER_LAYOUT;
 }
 
+function findPrimaryB2bHsnOrSac(rawLines: string[]): { hsnCode: string; rawToken: string; lineDesc: string } | null {
+  let explicitCandidate: { hsnCode: string; rawToken: string; lineDesc: string } | null = null;
+  let sacCandidate: { hsnCode: string; rawToken: string; lineDesc: string } | null = null;
+
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const line = rawLines[i];
+    if (/^\s*(?:cin|irn|ack|udyam|pan|tan|gst(?:in|n)|phone|mob|email|account|ifsc|pnr)\b/i.test(line)) {
+      continue;
+    }
+    const sacMatch = /\b(99\d{4})\b/.exec(line);
+    if (sacMatch) {
+      const code4 = sacMatch[1].slice(0, 4);
+      const desc = line
+        .replace(sacMatch[1], " ")
+        .replace(/\b(?:sac|hsn|code|no\.?)\b/gi, " ")
+        .replace(/[\d,]+(?:\.\d{1,2})?/g, " ")
+        .replace(/[^A-Za-z0-9&\-\/\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const cand = {
+        hsnCode: code4,
+        rawToken: sacMatch[1],
+        lineDesc: desc.length >= 4 ? desc.slice(0, 80) : `B2B Service (SAC ${sacMatch[1]})`,
+      };
+      if (!sacCandidate) sacCandidate = cand;
+    }
+
+    const explicitHsnMatch = /\b(?:hsn|sac)(?:\/sac)?(?:\s*code|\s*no\.?)?\s*[:\-]?\s*(\d{4,8})\b/i.exec(line);
+    if (explicitHsnMatch && !/^(?:202\d|19\d\d)$/.test(explicitHsnMatch[1])) {
+      const rawTok = explicitHsnMatch[1];
+      const code4 = rawTok.slice(0, 4);
+      if (lookupHsnRule(code4) || rawTok.length >= 6) {
+        const desc = line
+          .replace(explicitHsnMatch[0], " ")
+          .replace(/[\d,]+(?:\.\d{1,2})?/g, " ")
+          .replace(/[^A-Za-z0-9&\-\/\s]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        explicitCandidate = {
+          hsnCode: code4,
+          rawToken: rawTok,
+          lineDesc: desc.length >= 4 ? desc.slice(0, 80) : `B2B Supply (${rawTok})`,
+        };
+      }
+    }
+  }
+
+  return sacCandidate || explicitCandidate;
+}
+
+function parseSacOrSummaryFallbackLines(params: {
+  rawLines: string[];
+  declaredTaxableSubtotalPaise: bigint | null;
+  declaredGrandTotalPaise: bigint | null;
+  declaredCgstPaise: bigint;
+  declaredSgstPaise: bigint;
+  declaredIgstPaise: bigint;
+  sawCgstSummary: boolean;
+  sawSgstSummary: boolean;
+  sawIgstSummary: boolean;
+  roundOffPaise: bigint;
+  useInterstateTaxSplit: boolean;
+  pageConf: number;
+}): InvoiceLineInput[] {
+  const { rawLines, roundOffPaise, useInterstateTaxSplit, pageConf } = params;
+  const conf = Math.max(0.65, Math.min(0.95, pageConf > 1 ? pageConf / 100 : pageConf));
+
+  // Pass 1: Horizontal SAC/HSN service row carrying numeric amounts on the same line (e.g. airline/logistics tables)
+  for (const line of rawLines) {
+    if (/^\s*(?:cin|irn|ack|gst(?:in|n)|grand\s*total|total\b|hsn\/sac\s+total)/i.test(line)) continue;
+    const m = /\b(99\d{4}|\d{6,8})\b/.exec(line);
+    if (!m) continue;
+    const rawCode = m[1];
+    const code4 = rawCode.slice(0, 4);
+    if (!rawCode.startsWith("99") && !lookupHsnRule(code4)) continue;
+
+    const afterCode = line.slice((m.index ?? 0) + rawCode.length);
+    const numMatches = [...afterCode.matchAll(/(\d[\d,]*(?:\.\d{1,2})?)(\s*%)?/g)];
+    if (numMatches.length < 3) continue;
+
+    const pctExplicit = numMatches.filter((x) => Boolean(x[2])).map((x) => Number(x[1].replace(/,/g, "")));
+    const vals = numMatches
+      .filter((x) => !x[2])
+      .map((x) => {
+        const s = x[1];
+        return { s, v: Number(s.replace(/,/g, "")), p: safeParsePaise(s) };
+      })
+      .filter((x): x is { s: string; v: number; p: bigint } => x.p !== null && Number.isFinite(x.v));
+
+    if (vals.length < 3) continue;
+    const lastVal = vals[vals.length - 1];
+    const lastP = lastVal.p;
+    if (lastP <= 0n) continue;
+
+    // Look for "rate% taxAmt ... total" or "taxable ... cgst% cgstAmt sgst% sgstAmt ... total"
+    let taxableP: bigint | null = null;
+    let cgstP = 0n;
+    let sgstP = 0n;
+    let igstP = 0n;
+    let gstPct: number | undefined;
+    let splitBps: { cgstBps: number; sgstBps: number; igstBps: number } | undefined;
+
+    if (pctExplicit.length === 1 && STANDARD_GST_RATES.has(pctExplicit[0]) && vals.length >= 3) {
+      const rate = pctExplicit[0];
+      const taxCand = vals[vals.length - 2].p;
+      const taxSubCand = vals[0].p;
+      if (taxSubCand > 0n && bigIntAbs(taxSubCand + taxCand - lastP) <= 100n) {
+        taxableP = taxSubCand;
+        gstPct = rate;
+        if (useInterstateTaxSplit) {
+          igstP = taxCand;
+          splitBps = { cgstBps: 0, sgstBps: 0, igstBps: Math.round(rate * 100) };
+        } else {
+          cgstP = taxCand / 2n;
+          sgstP = taxCand - cgstP;
+          const totalBps = Math.round(rate * 100);
+          splitBps = { cgstBps: Math.floor(totalBps / 2), sgstBps: totalBps - Math.floor(totalBps / 2), igstBps: 0 };
+        }
+      } else {
+        // Check "%-interleaved" layout: "... taxable  <rate%>  cgst  sgst  ...  total" or "... taxable  <rate%>  igst  total"
+        const pctMatchIdx = numMatches.findIndex((nm) => Boolean(nm[2]));
+        const beforePctVals =
+          pctMatchIdx > 0
+            ? numMatches
+                .slice(0, pctMatchIdx)
+                .filter((x) => !x[2])
+                .map((x) => ({ s: x[1], v: Number(x[1].replace(/,/g, "")), p: safeParsePaise(x[1]) }))
+                .filter((x): x is { s: string; v: number; p: bigint } => x.p !== null && Number.isFinite(x.v))
+            : [];
+        const afterPctVals =
+          pctMatchIdx >= 0
+            ? numMatches
+                .slice(pctMatchIdx + 1)
+                .filter((x) => !x[2])
+                .map((x) => ({ s: x[1], v: Number(x[1].replace(/,/g, "")), p: safeParsePaise(x[1]) }))
+                .filter((x): x is { s: string; v: number; p: bigint } => x.p !== null && Number.isFinite(x.v))
+            : [];
+        const candTaxable = beforePctVals.length > 0 ? beforePctVals[beforePctVals.length - 1] : null;
+        if (candTaxable && candTaxable.p > 0n && afterPctVals.length >= 2) {
+          const expectedTaxRupees = (candTaxable.v * rate) / 100;
+          if (afterPctVals.length >= 3 && Math.abs(afterPctVals[0].v + afterPctVals[1].v - expectedTaxRupees) <= 1.5) {
+            taxableP = candTaxable.p;
+            cgstP = afterPctVals[0].p;
+            sgstP = afterPctVals[1].p;
+            gstPct = rate;
+            const totalBps = Math.round(rate * 100);
+            splitBps = { cgstBps: Math.floor(totalBps / 2), sgstBps: totalBps - Math.floor(totalBps / 2), igstBps: 0 };
+          } else if (Math.abs(afterPctVals[0].v - expectedTaxRupees) <= 1.5) {
+            taxableP = candTaxable.p;
+            igstP = afterPctVals[0].p;
+            gstPct = rate;
+            splitBps = { cgstBps: 0, sgstBps: 0, igstBps: Math.round(rate * 100) };
+          }
+        }
+      }
+    } else if (
+      vals.length === 4 &&
+      vals[0].p > 0n &&
+      vals[0].p === vals[2].p &&
+      lastP > vals[0].p
+    ) {
+      // Shifted multi-line SAC row: "SAC  taxable  nonTaxable  totalTaxable  ...  rowTotalInclTax"
+      const firstP = vals[0].p;
+      const diffP = lastP - firstP;
+      const snapped = snapStandardGstRate(Number((diffP * 10000n) / firstP) / 100);
+      if (snapped !== undefined && snapped > 0) {
+        taxableP = firstP;
+        gstPct = snapped;
+        const totalBps = Math.round(snapped * 100);
+        if (useInterstateTaxSplit) {
+          igstP = diffP;
+          splitBps = { cgstBps: 0, sgstBps: 0, igstBps: totalBps };
+        } else {
+          cgstP = diffP / 2n;
+          sgstP = diffP - cgstP;
+          splitBps = { cgstBps: Math.floor(totalBps / 2), sgstBps: totalBps - Math.floor(totalBps / 2), igstBps: 0 };
+        }
+      }
+    } else if (vals.length >= 8 && vals[0].p > 0n && lastP >= vals[0].p) {
+      // Wide Indian GST table row (e.g. Taxable | NonTax | TotalTaxable | IGST% | IGSTAmt | CGST% | CGSTAmt | SGST% | SGSTAmt | ... | Total)
+      const firstP = vals[0].p;
+      const diffP = lastP - firstP;
+      const nonZeroSmall = vals.slice(3, vals.length - 1).filter((x) => x.p > 0n && x.p < lastP);
+      // Match C+S pair or I tax amount against (Total - Taxable)
+      for (let a = 0; a < nonZeroSmall.length; a += 1) {
+        if (bigIntAbs(nonZeroSmall[a].p - diffP) <= 100n && nonZeroSmall[a].v < vals[0].v) {
+          taxableP = firstP;
+          igstP = nonZeroSmall[a].p!;
+          const snapped = snapStandardGstRate(Number((igstP * 10000n) / taxableP) / 100);
+          if (snapped !== undefined) {
+            gstPct = snapped;
+            splitBps = { cgstBps: 0, sgstBps: 0, igstBps: Math.round(snapped * 100) };
+          }
+          break;
+        }
+        if (a + 2 < nonZeroSmall.length && bigIntAbs(nonZeroSmall[a].p! + nonZeroSmall[a + 2].p! - diffP) <= 100n) {
+          taxableP = firstP;
+          cgstP = nonZeroSmall[a].p!;
+          sgstP = nonZeroSmall[a + 2].p!;
+          const snapped = snapStandardGstRate(Number(((cgstP + sgstP) * 10000n) / taxableP) / 100);
+          if (snapped !== undefined) {
+            gstPct = snapped;
+            const totalBps = Math.round(snapped * 100);
+            splitBps = { cgstBps: Math.floor(totalBps / 2), sgstBps: totalBps - Math.floor(totalBps / 2), igstBps: 0 };
+          }
+          break;
+        }
+      }
+    }
+
+    if (taxableP !== null && taxableP > 0n) {
+      const prefixDesc = line
+        .slice(0, m.index ?? 0)
+        .replace(/[^A-Za-z0-9&\-\/\s]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      return [
+        buildInvoiceLine({
+          lineNumber: 1,
+          description: prefixDesc.length >= 4 ? prefixDesc : `B2B Service (SAC/HSN ${rawCode})`,
+          hsnCode: code4,
+          qty: 1,
+          unit: code4.startsWith("99") ? "srv" : "pcs",
+          unitRatePaise: taxableP,
+          discountPaise: 0n,
+          declaredTaxablePaise: taxableP,
+          gstPct,
+          explicitSplitBps: splitBps,
+          declaredCgstPaise: cgstP,
+          declaredSgstPaise: sgstP,
+          declaredIgstPaise: igstP,
+          declaredLineTotalPaise: lastVal.p,
+          isInterstate: useInterstateTaxSplit,
+          ocrConfidence: conf,
+        }),
+      ];
+    }
+  }
+
+  // Pass 2: Vertical GST Tax Summary + Document HSN/SAC fallback (only when real GST tax > 0n is declared)
+  const hsnInfo = findPrimaryB2bHsnOrSac(rawLines);
+  const taxSum = params.declaredCgstPaise + params.declaredSgstPaise + params.declaredIgstPaise;
+  if (taxSum <= 0n) return [];
+
+  const taxableP =
+    params.declaredTaxableSubtotalPaise && params.declaredTaxableSubtotalPaise > 0n
+      ? params.declaredTaxableSubtotalPaise
+      : params.declaredGrandTotalPaise && params.declaredGrandTotalPaise > taxSum + roundOffPaise
+        ? params.declaredGrandTotalPaise - taxSum - roundOffPaise
+        : 0n;
+
+  if (taxableP <= 0n) return [];
+  if (params.declaredGrandTotalPaise && taxableP > params.declaredGrandTotalPaise * 20n) return [];
+
+  const hsnCode = hsnInfo?.hsnCode ?? "0000";
+  const lineDesc = hsnInfo?.lineDesc ?? "GST Tax Summary (Taxable + GST Verified; HSN/SAC Missing)";
+  const snappedPct = snapStandardGstRate(Number((taxSum * 10000n) / taxableP) / 100);
+  const hasInter = params.declaredIgstPaise > 0n && params.declaredCgstPaise === 0n && params.declaredSgstPaise === 0n;
+  const totalBps = snappedPct !== undefined ? Math.round(snappedPct * 100) : Math.round(Number((taxSum * 10000n) / taxableP));
+  const explicitSplitBps = hasInter
+    ? { cgstBps: 0, sgstBps: 0, igstBps: totalBps }
+    : { cgstBps: Math.floor(totalBps / 2), sgstBps: totalBps - Math.floor(totalBps / 2), igstBps: 0 };
+
+  return [
+    buildInvoiceLine({
+      lineNumber: 1,
+      description: lineDesc,
+      hsnCode,
+      qty: 1,
+      unit: hsnCode.startsWith("99") ? "srv" : "pcs",
+      unitRatePaise: taxableP,
+      discountPaise: 0n,
+      declaredTaxablePaise: taxableP,
+      gstPct: snappedPct,
+      explicitSplitBps,
+      declaredCgstPaise: params.declaredCgstPaise,
+      declaredSgstPaise: params.declaredSgstPaise,
+      declaredIgstPaise: params.declaredIgstPaise,
+      declaredLineTotalPaise: taxableP + taxSum,
+      isInterstate: hasInter || useInterstateTaxSplit,
+      ocrConfidence: Math.min(0.88, conf),
+    }),
+  ];
+}
+
 /**
  * Deterministically parses scrubbed Indian GST invoice OCR text into structured metadata
  * and line items without making any LLM call.
@@ -1317,7 +1653,8 @@ export function parseOcrInvoiceText(
   }
 ): DeterministicOcrParseResult {
   const cappedText = scrubbedText.length > 65536 ? scrubbedText.slice(0, 65536) : scrubbedText;
-  const rawLines = cappedText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const normalizedText = cappedText.replace(/(^|[\s\-(])%(?=\d)/g, "$1₹");
+  const rawLines = normalizedText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const { vendorGstin, buyerGstin, gstinOcrAmbiguous } = extractGstins(rawLines);
   const { vendorName, buyerName } = extractVendorAndBuyerNames(rawLines);
 
@@ -1336,7 +1673,8 @@ export function parseOcrInvoiceText(
   let sawSgstSummary = false;
   let sawIgstSummary = false;
 
-  for (const line of rawLines) {
+  for (let li = 0; li < rawLines.length; li += 1) {
+    const line = rawLines[li];
     if (!invoiceNumber) {
       const m =
         /(?:(?:invoice|bill|inv)\s*(?:no\.?|number|#)\s*[:=\-©.•\s]*|^bill\s*:\s*)([A-Z0-9][A-Z0-9\/_-]{1,28})/i.exec(
@@ -1347,12 +1685,22 @@ export function parseOcrInvoiceText(
       }
     }
     if (!invoiceDate) {
-      const dm =
-        /(?:invoice\s*date|bill\s*date|dated?|dt)\s*[:=\-.\s]*([0-9]{4}[-\/][0-9]{1,2}[-\/][0-9]{1,2}|[0-9]{1,2}[-\/.][0-9]{1,2}[-\/.][0-9]{2,4}|[0-9]{1,2}[\s-][A-Za-z]{3,9}[\s-][0-9]{2,4})/i.exec(
-          line
-        );
+      const datePat =
+        "([0-9]{4}[-\\/][0-9]{1,2}[-\\/][0-9]{1,2}|[0-9]{1,2}[-\\/.][0-9]{1,2}[-\\/.][0-9]{2,4}|[0-9]{1,2}[\\s-][A-Za-z]{3,9}[\\s-][0-9]{2,4})";
+      const dm = new RegExp(
+        `\\b(?:invoice\\s*date|bill\\s*date|dated?|bill\\s*dt|date)\\b\\s*[:=\\-.\\s]*${datePat}`,
+        "i"
+      ).exec(line);
       if (dm) {
         invoiceDate = normalizeIsoDate(dm[1]) ?? "";
+      } else if (
+        /\b(?:invoice\s*date|bill\s*date|dated|bill\s*dt)\b/i.test(line) &&
+        li + 1 < rawLines.length
+      ) {
+        const nextDm = new RegExp(datePat, "i").exec(rawLines[li + 1]);
+        if (nextDm) {
+          invoiceDate = normalizeIsoDate(nextDm[1]) ?? "";
+        }
       }
     }
     if (!supplierStateCode && /\bstate\b/i.test(line)) {
@@ -1362,25 +1710,33 @@ export function parseOcrInvoiceText(
       placeOfSupplyStateCode = findStateCodeFromText(line) ?? "";
     }
 
-    const explicitGtMatch =
-      /(?:grand\s*total|net\s*payable|invoice\s*total|total\s*payable)\b[^0-9-]*(-?[\d,]+(?:\.\d{1,2})?)/i.exec(
-        line
-      );
-    if (explicitGtMatch) {
-      const p = safeParsePaise(explicitGtMatch[1]);
-      if (p !== null) {
-        declaredGrandTotalPaise = p;
-        sawExplicitGrandTotal = true;
-      }
-    } else if (!sawExplicitGrandTotal) {
-      const genericTotalMatch = /^total\s*(?:rs\.?|₹|:|=)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i.exec(line);
-      if (genericTotalMatch) {
-        const p = safeParsePaise(genericTotalMatch[1]);
-        if (p !== null && p >= 0n) declaredGrandTotalPaise = p;
+    if (!/\(\s*in\s+words\s*\)|in\s+words\s*:/i.test(line)) {
+      const explicitGtLabelMatch =
+        /(?:grand\s*total(?:\s*value)?|total\s*invoice\s*value|net\s*payable|invoice\s*total|total\s*payable)\b/i.exec(
+          line
+        );
+      if (explicitGtLabelMatch) {
+        const afterGt = line.slice((explicitGtLabelMatch.index ?? 0) + explicitGtLabelMatch[0].length);
+        const numMatches = [...afterGt.matchAll(/(-?[\d,]+(?:\.\d{1,2})?)/g)];
+        const lastNumStr = numMatches.length > 0 ? numMatches[numMatches.length - 1][1] : "";
+        const p = lastNumStr ? safeParsePaise(lastNumStr) : null;
+        if (p !== null) {
+          declaredGrandTotalPaise = p;
+          sawExplicitGrandTotal = true;
+        }
+      } else if (!sawExplicitGrandTotal) {
+        const genericTotalMatch =
+          /^(?:total(?:\s*value)?|amount)(?:\s+\d{1,5})?\s*(?:₹|rs\.?|inr|:|=)?\s*([\d,]+(?:\.\d{1,2})?)\s*$/i.exec(
+            line
+          );
+        if (genericTotalMatch) {
+          const p = safeParsePaise(genericTotalMatch[1]);
+          if (p !== null && p >= 0n) declaredGrandTotalPaise = p;
+        }
       }
     }
 
-    const tvMatch = /(?:total\s+taxable\s+value|taxable\s+(?:value|subtotal)|sub\s*total|subtotal)\b[^0-9]*([\d,]+(?:\.\d{1,2})?)/i.exec(
+    const tvMatch = /(?:net\s+taxable\s+(?:amount|value)|total\s+taxable\s+value|taxable\s+(?:value|subtotal)|sub\s*total|subtotal)\b[^0-9]*([\d,]+(?:\.\d{1,2})?)/i.exec(
       line
     );
     if (tvMatch) {
@@ -1388,7 +1744,7 @@ export function parseOcrInvoiceText(
       if (p !== null && p >= 0n) declaredTaxableSubtotalPaise = p;
     }
 
-    const roMatch = /round\s*off\b[^0-9-]*(-?[\d,]+(?:\.\d{1,2})?)/i.exec(line);
+    const roMatch = /(?:round\s*off|rounding)\b[^0-9-]*(-?[\d,]+(?:\.\d{1,2})?)/i.exec(line);
     if (roMatch) {
       const p = safeParsePaise(roMatch[1]);
       if (p !== null && bigIntAbs(p) <= 100n) roundOffPaise = p;
@@ -1410,7 +1766,12 @@ export function parseOcrInvoiceText(
         sawSgstSummary = true;
       }
     }
-    if (/^(?:add\s*:\s*)?(?:igst|[il1]gst|\(gst)\b/i.test(line) || /\badd\s*:\s*igst\b/i.test(line)) {
+    if (
+      /^(?:add\s*:\s*)?(?:igst|[il1]gst|\(gst)\b/i.test(line) ||
+      /\badd\s*:\s*igst\b/i.test(line) ||
+      /^\d+(?:\.\d{1,2})?\s*%\s*igst\b/i.test(line) ||
+      /\bigst\s*\(?\s*\d+(?:\.\d{1,2})?\s*%/i.test(line)
+    ) {
       const m = /([\d,]+(?:\.\d{1,2})?)\s*$/.exec(trimEndChars(line, SUMMARY_END_TRIM_CHARS));
       const p = m ? safeParsePaise(m[1]) : null;
       if (p !== null) {
@@ -1537,12 +1898,91 @@ export function parseOcrInvoiceText(
     );
   }
 
+  // Sanity guard against OCR column-glued digits fabricating >20x the invoice grand total
+  if (declaredGrandTotalPaise !== null && declaredGrandTotalPaise > 0n && lines.length > 0) {
+    const ceiling = declaredGrandTotalPaise * 20n;
+    const sane = lines.filter(
+      (l) =>
+        BigInt(l.declaredLineTotalPaise || "0") <= ceiling &&
+        BigInt(l.declaredTaxablePaise || "0") <= ceiling
+    );
+    if (sane.length !== lines.length) {
+      lines.length = 0;
+      lines.push(...sane);
+    }
+  }
+
+  // Generic SAC / service & tax-summary fallback ONLY when the primary goods-row pass yields 0 lines
+  if (lines.length === 0) {
+    const fallbackLines = parseSacOrSummaryFallbackLines({
+      rawLines,
+      declaredTaxableSubtotalPaise,
+      declaredGrandTotalPaise,
+      declaredCgstPaise,
+      declaredSgstPaise,
+      declaredIgstPaise,
+      sawCgstSummary,
+      sawSgstSummary,
+      sawIgstSummary,
+      roundOffPaise,
+      useInterstateTaxSplit,
+      pageConf,
+    });
+    if (fallbackLines.length > 0) {
+      lines.push(...fallbackLines);
+    }
+  }
+
   const sawCompleteIntraTaxSummary = sawCgstSummary && sawSgstSummary;
   const sawCompleteInterTaxSummary = sawIgstSummary && !sawCgstSummary && !sawSgstSummary;
   const sawExplicitTaxSummary = sawCompleteIntraTaxSummary || sawCompleteInterTaxSummary;
   const declaredTotalTaxPaise = sawExplicitTaxSummary
     ? declaredCgstPaise + declaredSgstPaise + declaredIgstPaise
     : null;
+
+  // Tally/document summary tax attribution ONLY when line rows carry taxable-only totals (0% tax) while document summary balances with tax + grand total
+  if (
+    lines.length > 0 &&
+    declaredTotalTaxPaise !== null &&
+    declaredTotalTaxPaise > 0n &&
+    lines.every(
+      (l) =>
+        l.declaredCgstBps === 0 &&
+        l.declaredSgstBps === 0 &&
+        l.declaredIgstBps === 0 &&
+        l.declaredLineTotalPaise === l.declaredTaxablePaise
+    )
+  ) {
+    const sumTaxable = lines.reduce((acc, l) => acc + BigInt(l.declaredTaxablePaise || "0"), 0n);
+    const totalCheckOk =
+      declaredGrandTotalPaise === null ||
+      bigIntAbs(sumTaxable + declaredTotalTaxPaise + roundOffPaise - declaredGrandTotalPaise) <= 100n;
+    const snappedDocRate =
+      sumTaxable > 0n
+        ? snapStandardGstRate(Number((declaredTotalTaxPaise * 10000n) / sumTaxable) / 100)
+        : undefined;
+    if (totalCheckOk && snappedDocRate !== undefined && snappedDocRate > 0) {
+      const totalBps = Math.round(snappedDocRate * 100);
+      const isDocInter = sawCompleteInterTaxSummary && declaredIgstPaise > 0n;
+      const halfBps = Math.floor(totalBps / 2);
+      for (let i = 0; i < lines.length; i += 1) {
+        const tx = BigInt(lines[i].declaredTaxablePaise || "0");
+        const cgstP = isDocInter ? 0n : halfUpDiv(tx * BigInt(halfBps), 10000n);
+        const sgstP = isDocInter ? 0n : halfUpDiv(tx * BigInt(totalBps - halfBps), 10000n);
+        const igstP = isDocInter ? halfUpDiv(tx * BigInt(totalBps), 10000n) : 0n;
+        lines[i] = {
+          ...lines[i],
+          declaredCgstBps: isDocInter ? 0 : halfBps,
+          declaredSgstBps: isDocInter ? 0 : totalBps - halfBps,
+          declaredIgstBps: isDocInter ? totalBps : 0,
+          declaredCgstPaise: cgstP.toString(),
+          declaredSgstPaise: sgstP.toString(),
+          declaredIgstPaise: igstP.toString(),
+          declaredLineTotalPaise: (tx + cgstP + sgstP + igstP).toString(),
+        };
+      }
+    }
+  }
 
   // Score structural completeness to guide optional LLM fallback decision
   let confidenceScore = pageConf > 1 ? pageConf / 100 : pageConf;

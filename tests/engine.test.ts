@@ -15,6 +15,8 @@ import { DEMO_PRIOR_BILLS, DEMO_SCENARIOS, DEMO_VENDOR_HISTORY } from "../src/li
 import {
   HSN_SCHEDULE_60,
   HSN_SCHEDULE_60_V2_GST2,
+  HSN_SCHEDULE_66_V1,
+  HSN_SCHEDULE_66_V2_GST2,
   computeGstinCheckChar,
   lookupHsnRule,
   makeValidGstin,
@@ -2253,4 +2255,141 @@ test("Wave 1 governance ledger: verdict gates, consent & DPDP reset hash chain, 
     if (prevConsent !== null) fs.writeFileSync(consentPath, prevConsent, "utf8");
     else if (fs.existsSync(consentPath)) fs.unlinkSync(consentPath);
   }
+});
+
+test("v2.1 B2B PDF validation, SAC service parsing, GSTIN buyer-first labels, glued-row guard & DPDP OCR email scrub", async () => {
+  // 1. 66-heading B2B extension keeps HSN_SCHEDULE_60 intact and adds date-effective 4819 & SAC rules
+  assert.equal(HSN_SCHEDULE_60.length, 60);
+  assert.equal(HSN_SCHEDULE_66_V1.length, 66);
+  assert.equal(HSN_SCHEDULE_66_V2_GST2.length, 66);
+  assert.equal(lookupHsnRule("4819", "2025-07-01")?.igstBps, 1200);
+  assert.equal(lookupHsnRule("4819", "2026-10-01")?.igstBps, 500);
+  assert.equal(lookupHsnRule("996812", "2026-10-01")?.igstBps, 1800);
+  assert.equal(lookupHsnRule("996425", "2025-07-01")?.igstBps, 500);
+
+  // 2. DPDP OCR space-dot email redaction masks "user@gmail com" while keeping valid GSTIN intact
+  const vendorGstin = makeValidGstin("29", "SYNTK", "0001", "A", "1");
+  const buyerGstin = makeValidGstin("29", "SYNTK", "0002", "B", "1");
+  const scrubbedOcr = scrubPiiForModelEgress(
+    `Supplier GSTN: ${vendorGstin} Email: store.owner@gmail com Phone: 9845012345`
+  );
+  assert.equal(scrubbedOcr.scrubbedText.includes("store.owner"), false);
+  assert.equal(scrubbedOcr.scrubbedText.includes("[EMAIL_REDACTED]"), true);
+  assert.equal(scrubbedOcr.scrubbedText.includes("[MOBILE_REDACTED]"), true);
+  assert.equal(scrubbedOcr.scrubbedText.includes(vendorGstin), true);
+
+  // 3. Buyer-first GST No. layout + vertical SAC service summary table (0% -> 18% GST)
+  const serviceSummaryOcr = [
+    "Tax Invoice",
+    "Customer Details",
+    "Name Synthetic Retail Buyer",
+    `GST No. ${buyerGstin}`,
+    "Place of Supply State KARNATAKA 29",
+    "Invoice No. SYN-SRV-101  Invoice Date 10-11-2026",
+    `Supplier GST No. ${vendorGstin}`,
+    "SAC Code 998365",
+    "Net Taxable Amount 5000.00",
+    "CGST (9%) 450.00",
+    "SGST (9%) 450.00",
+    "Amount 5900.00",
+  ].join("\n");
+  const parsedSrv = parseOcrInvoiceText(serviceSummaryOcr);
+  assert.equal(parsedSrv.buyerGstin, buyerGstin);
+  assert.equal(parsedSrv.vendorGstin, vendorGstin);
+  assert.equal(parsedSrv.invoiceDate, "2026-11-10");
+  assert.equal(parsedSrv.lines.length, 1);
+  assert.equal(parsedSrv.lines[0].hsnCode, "9983");
+  assert.equal(parsedSrv.lines[0].declaredTaxablePaise, "500000");
+  assert.equal(parsedSrv.lines[0].declaredLineTotalPaise, "590000");
+
+  // 4. Zoho-style taxable Amount column ("Rate | GST% | GST Amt | Amount")
+  const interGstin = makeValidGstin("09", "SYNTK", "0003", "C", "1");
+  const zohoText = [
+    `GSTIN: ${interGstin}`,
+    "Invoice Date : 21/11/2026",
+    "Place Of Supply : Karnataka (29)",
+    "Bill To",
+    `GSTIN ${buyerGstin}`,
+    "# Item & Description HSN/SAC Qty Rate % Amt Amount",
+    "1 Woven Cotton Set 520811 2.00 PCS 2,500.00 5% 250.00 5,000.00",
+    "Sub Total 5,000.00",
+    "IGST 250.00",
+    "Grand Total 5,250.00",
+  ].join("\n");
+  const parsedZoho = parseOcrInvoiceText(zohoText);
+  assert.equal(parsedZoho.vendorGstin, interGstin);
+  assert.equal(parsedZoho.lines.length, 1);
+  assert.equal(parsedZoho.lines[0].declaredTaxablePaise, "500000");
+  assert.equal(parsedZoho.lines[0].declaredIgstPaise, "25000");
+  assert.equal(parsedZoho.lines[0].declaredLineTotalPaise, "525000");
+
+  // 5. OCR glued-number sanity guard rejects rows >20x declaredGrandTotalPaise
+  const gluedText = [
+    `GSTN: ${vendorGstin}`,
+    "Invoice Date: 2026-11-07",
+    "Synthetic Product 1006 1 pcs 23373302.48 5% 23373302.48",
+    "Grand Total 500.00",
+  ].join("\n");
+  const parsedGlued = parseOcrInvoiceText(gluedText);
+  assert.equal(parsedGlued.lines.length, 0);
+
+  // 6. POST /api/analyze rejects fake .pdf payloads lacking %PDF- header with HTTP 415
+  const fd = new FormData();
+  fd.append("file", new File([Buffer.from("not-a-real-pdf-header")], "fake.pdf", { type: "application/pdf" }));
+  const fakePdfReq = new NextRequest("http://localhost/api/analyze", {
+    method: "POST",
+    body: fd,
+    headers: { "x-real-ip": "127.0.0.21" },
+  });
+  const fakePdfRes = await analyzePost(fakePdfReq);
+  assert.equal(fakePdfRes.status, 415);
+
+  // 7. Original For Recipient banner never flips supplier GSTIN; 2-line column header dates & %->Rs OCR normalize
+  const rjGstin = makeValidGstin("08", "SYNTK", "0004", "D", "1");
+  const recBannerText = [
+    "Tax Invoice (Original For Recipient)",
+    `GSTN : ${rjGstin}`,
+    "Invoice No.   Invoice Date",
+    "SYN-998       15-Jun-2025",
+    `GSTIN of Customer : ${buyerGstin}`,
+    "Place of Supply : KARNATAKA [29]",
+    "Seat Fee 996425 428.57 - 428.57 5% 21.43 450.00",
+    "Total 1 %450.00",
+  ].join("\n");
+  const recParsed = parseOcrInvoiceText(recBannerText);
+  assert.equal(recParsed.vendorGstin, rjGstin);
+  assert.equal(recParsed.supplierStateCode, "08");
+  assert.equal(recParsed.placeOfSupplyStateCode, "29");
+  assert.equal(recParsed.invoiceDate, "2025-06-15");
+  assert.equal(recParsed.declaredGrandTotalPaise, 45000n);
+
+  // 8. Tally summary IGST attribution + shifted SAC row
+  const tallyText = [
+    `GSTIN/UIN: ${interGstin}`,
+    "Dated",
+    "04-Apr-26",
+    "Place of Supply : Karnataka",
+    `GSTIN ${buyerGstin}`,
+    "Sl Description of Goods HSN/SAC Quantity Rate per Amount",
+    "1 Packing Seal Box 39239090 1,000 Pcs 1.30 Pcs 1,300.00",
+    "IGST TAX (SALES) 234.00",
+    "Grand Total 1,534.00",
+  ].join("\n");
+  const tallyParsed = parseOcrInvoiceText(tallyText);
+  assert.equal(tallyParsed.lines.length, 1);
+  assert.equal(tallyParsed.lines[0].declaredIgstBps, 1800);
+  assert.equal(tallyParsed.lines[0].declaredIgstPaise, "23400");
+  assert.equal(tallyParsed.lines[0].declaredLineTotalPaise, "153400");
+
+  const shiftedSacText = [
+    `GSTIN : ${buyerGstin}`,
+    "Date : 22-May-2026",
+    "Place of Supply : Karnataka",
+    "Travel Charges 996425 5,447.00 0.00 5,447.00 5,719.00",
+  ].join("\n");
+  const shiftedParsed = parseOcrInvoiceText(shiftedSacText);
+  assert.equal(shiftedParsed.invoiceDate, "2026-05-22");
+  assert.equal(shiftedParsed.lines.length, 1);
+  assert.equal(shiftedParsed.lines[0].hsnCode, "9964");
+  assert.equal(shiftedParsed.lines[0].declaredLineTotalPaise, "571900");
 });

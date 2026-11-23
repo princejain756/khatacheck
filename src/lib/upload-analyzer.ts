@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import os from "node:os";
 import { computeGstinCheckChar } from "./gst-rules";
 import { halfUpDiv, parseINRToPaise } from "./money";
 import {
@@ -10,6 +12,228 @@ import {
 import type { InvoiceInput, InvoiceLineInput } from "./types";
 
 const MAX_REGEX_INPUT_CHARS = 65536;
+const MAX_PDF_EXTRACT_TEXT_BYTES = 2 * 1024 * 1024;
+const MAX_PDF_RENDER_PNG_BYTES = 10 * 1024 * 1024;
+
+const PDFTOTEXT_CANDIDATES = [
+  process.env.PDFTOTEXT_BIN,
+  "/usr/bin/pdftotext",
+  "/usr/local/bin/pdftotext",
+  "/opt/homebrew/bin/pdftotext",
+  "pdftotext",
+].filter((p): p is string => Boolean(p && p.trim()));
+
+const PDFTOPPM_CANDIDATES = [
+  process.env.PDFTOPPM_BIN,
+  "/usr/bin/pdftoppm",
+  "/usr/local/bin/pdftoppm",
+  "/opt/homebrew/bin/pdftoppm",
+  "pdftoppm",
+].filter((p): p is string => Boolean(p && p.trim()));
+
+const PDF_PYTHON_CANDIDATES = [
+  process.env.KHATACHECK_PYTHON_BIN,
+  "/usr/bin/python3",
+  "/opt/homebrew/opt/python@3.13/libexec/bin/python3",
+  "/opt/homebrew/bin/python3",
+  "/usr/local/bin/python3",
+  "python3",
+].filter((p): p is string => Boolean(p && p.trim()));
+
+const FITZ_PDF_SCRIPT = [
+  "import base64, json, sys",
+  "try:",
+  "    import fitz",
+  "except Exception:",
+  "    sys.exit(42)",
+  "data = sys.stdin.buffer.read()",
+  "if not data:",
+  "    sys.exit(1)",
+  'doc = fitz.open(stream=data, filetype="pdf")',
+  "pages = min(6, len(doc))",
+  'text = "\\n".join(doc[i].get_text("text") for i in range(pages)).strip()',
+  "if len(text) >= 40:",
+  '    print(json.dumps({"kind": "text", "text": text[:65536]}))',
+  "    sys.exit(0)",
+  "if len(doc) > 0:",
+  "    mat = fitz.Matrix(200 / 72.0, 200 / 72.0)",
+  "    pix = doc[0].get_pixmap(matrix=mat, alpha=False)",
+  '    png_b64 = base64.b64encode(pix.tobytes("png")).decode("ascii")',
+  '    print(json.dumps({"kind": "png", "png_b64": png_b64}))',
+].join("\n");
+
+function runBinaryWithStdin(
+  binPath: string,
+  args: string[],
+  stdinBuf: Buffer,
+  timeoutMs: number,
+  maxStdoutBytes: number
+): Promise<{ status: "ok" | "missing" | "error"; stdout: Buffer }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (val: { status: "ok" | "missing" | "error"; stdout: Buffer }) => {
+      if (settled) return;
+      settled = true;
+      resolve(val);
+    };
+
+    let child;
+    try {
+      child = spawn(binPath, args, {
+        stdio: ["pipe", "pipe", "pipe"],
+        cwd: os.tmpdir(),
+        env: {
+          NODE_ENV: process.env.NODE_ENV ?? "production",
+          PATH: process.env.PATH || "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
+          LANG: "C.UTF-8",
+          LC_ALL: "C.UTF-8",
+        },
+      });
+    } catch {
+      done({ status: "missing", stdout: Buffer.alloc(0) });
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore kill failure
+      }
+      done({ status: "error", stdout: Buffer.alloc(0) });
+    }, timeoutMs);
+
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let exceeded = false;
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (exceeded) return;
+      totalBytes += chunk.byteLength;
+      if (totalBytes > maxStdoutBytes) {
+        exceeded = true;
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // ignore kill failure
+        }
+        return;
+      }
+      chunks.push(chunk);
+    });
+    child.stdin.on("error", () => {
+      // ignore EPIPE if process rejects input early
+    });
+    child.on("error", (err: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      done({ status: err?.code === "ENOENT" ? "missing" : "error", stdout: Buffer.alloc(0) });
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (exceeded || code !== 0) {
+        done({ status: "error", stdout: Buffer.alloc(0) });
+        return;
+      }
+      done({ status: "ok", stdout: Buffer.concat(chunks, totalBytes) });
+    });
+
+    child.stdin.end(stdinBuf);
+  });
+}
+
+function isPngBuffer(buf: Buffer): boolean {
+  return (
+    buf.length >= 12 &&
+    buf[0] === 0x89 &&
+    buf[1] === 0x50 &&
+    buf[2] === 0x4e &&
+    buf[3] === 0x47 &&
+    buf[4] === 0x0d &&
+    buf[5] === 0x0a &&
+    buf[6] === 0x1a &&
+    buf[7] === 0x0a
+  );
+}
+
+async function extractPdfWithProductionTools(
+  buf: Buffer
+): Promise<{ kind: "pdf_text"; text: string } | { kind: "pdf_png"; pngBuf: Buffer } | null> {
+  let pdftotextAvailable = false;
+  let sawEmptyDigitalText = false;
+
+  for (const bin of PDFTOTEXT_CANDIDATES) {
+    const res = await runBinaryWithStdin(
+      bin,
+      ["-layout", "-nopgbrk", "-", "-"],
+      buf,
+      6000,
+      MAX_PDF_EXTRACT_TEXT_BYTES
+    );
+    if (res.status === "missing") continue;
+    pdftotextAvailable = true;
+    if (res.status === "ok") {
+      const text = capRegexInput(res.stdout.toString("utf8")).trim();
+      if (text.length >= 40) {
+        return { kind: "pdf_text", text };
+      }
+      sawEmptyDigitalText = true;
+    }
+    break;
+  }
+
+  if (sawEmptyDigitalText || !pdftotextAvailable) {
+    for (const bin of PDFTOPPM_CANDIDATES) {
+      const res = await runBinaryWithStdin(
+        bin,
+        ["-png", "-r", "200", "-f", "1", "-l", "1", "-singlefile", "-"],
+        buf,
+        10000,
+        MAX_PDF_RENDER_PNG_BYTES
+      );
+      if (res.status === "missing") continue;
+      if (res.status === "ok" && isPngBuffer(res.stdout)) {
+        return { kind: "pdf_png", pngBuf: res.stdout };
+      }
+      break;
+    }
+  }
+
+  if (!pdftotextAvailable) {
+    for (const pyBin of PDF_PYTHON_CANDIDATES) {
+      const res = await runBinaryWithStdin(
+        pyBin,
+        ["-I", "-c", FITZ_PDF_SCRIPT],
+        buf,
+        10000,
+        MAX_PDF_RENDER_PNG_BYTES
+      );
+      if (res.status === "missing") continue;
+      if (res.status === "ok") {
+        try {
+          const parsed = JSON.parse(res.stdout.toString("utf8")) as {
+            kind?: string;
+            text?: string;
+            png_b64?: string;
+          };
+          if (parsed.kind === "text" && typeof parsed.text === "string" && parsed.text.trim().length >= 40) {
+            return { kind: "pdf_text", text: capRegexInput(parsed.text.trim()) };
+          }
+          if (parsed.kind === "png" && typeof parsed.png_b64 === "string") {
+            const pngBuf = Buffer.from(parsed.png_b64, "base64");
+            if (isPngBuffer(pngBuf)) {
+              return { kind: "pdf_png", pngBuf };
+            }
+          }
+        } catch {
+          // ignore malformed helper output
+        }
+      }
+      break;
+    }
+  }
+
+  return null;
+}
 
 function capRegexInput(raw: string): string {
   return raw.length > MAX_REGEX_INPUT_CHARS ? raw.slice(0, MAX_REGEX_INPUT_CHARS) : raw;
@@ -230,6 +454,7 @@ export function parseCustomInvoiceText(
         invoiceNumber: gstParsed.invoiceNumber,
         invoiceDate: gstParsed.invoiceDate,
         receivedAtIso: new Date().toISOString(),
+        ...(gstParsed.gstinOcrAmbiguous ? { gstinOcrAmbiguous: true } : {}),
         roundOffPaise: gstParsed.roundOffPaise.toString(),
         declaredTaxableSubtotalPaise: taxableSubtotal.toString(),
         declaredTotalTaxPaise: totalTaxVal.toString(),
@@ -242,7 +467,7 @@ export function parseCustomInvoiceText(
       };
     }
 
-    // Honest 0-paise manual fallback so unparseable custom text/PDF/CSV still enters DPDP + prompt-guard inspection without fabricating Rs 1,050
+    // Honest 0-paise manual fallback so unparseable custom text/PDF/CSV preserves parsed metadata & enters DPDP + prompt-guard cleanly
     lines.push({
       lineNumber: 1,
       sku: "CUSTOM-MANUAL-REVIEW",
@@ -262,8 +487,29 @@ export function parseCustomInvoiceText(
       declaredLineTotalPaise: "0",
       ocrConfidence: 0.25,
     });
-    totalTaxable = 0n;
-    totalTax = 0n;
+    return {
+      id: `UPL-${Date.now()}`,
+      tenantId: "store-ganesh-blr-01",
+      vendorName: gstParsed.vendorName || "Custom Uploaded Supplier",
+      vendorGstin: gstParsed.vendorGstin || options?.fallbackVendorGstin || defaultGstin,
+      buyerName: gstParsed.buyerName || "Ganesh Kirana Stores",
+      buyerGstin: gstParsed.buyerGstin || "29BBBBB1111B2ZM",
+      supplierStateCode: gstParsed.supplierStateCode || stateCode,
+      placeOfSupplyStateCode: gstParsed.placeOfSupplyStateCode || stateCode,
+      invoiceNumber: gstParsed.invoiceNumber || matchedInvNo || `UPL/${Date.now().toString().slice(-4)}`,
+      invoiceDate: gstParsed.invoiceDate || "2026-11-21",
+      receivedAtIso: new Date().toISOString(),
+      ...(gstParsed.gstinOcrAmbiguous ? { gstinOcrAmbiguous: true } : {}),
+      roundOffPaise: "0",
+      declaredTaxableSubtotalPaise: "0",
+      declaredTotalTaxPaise: "0",
+      declaredGrandTotalPaise: "0",
+      clarityScore: options?.clarityScore ?? 215,
+      subgroup: "printed_en",
+      voiceTranscriptRaw: safeVoice,
+      notesRaw: trimmed,
+      lines,
+    };
   }
 
   return {
@@ -306,6 +552,38 @@ export async function analyzeUploadedBuffer(
     return extractAndParseInvoiceImage(buf, filename, {
       voiceTranscript: options?.voiceTranscript,
     });
+  }
+
+  const isPdfUpload =
+    filename.toLowerCase().endsWith(".pdf") ||
+    options?.mimeType?.toLowerCase().split(";")[0].trim() === "application/pdf";
+  if (isPdfUpload) {
+    const headerSlice = buf.subarray(0, Math.min(buf.length, 1024)).toString("latin1");
+    if (headerSlice.includes("%PDF-")) {
+      const prodPdf = await extractPdfWithProductionTools(buf);
+      if (prodPdf?.kind === "pdf_text") {
+        const invoice = parseCustomInvoiceText(prodPdf.text, {
+          voiceTranscript: options?.voiceTranscript,
+          clarityScore: 215,
+        });
+        return {
+          extractKind: "pdf_text",
+          invoice,
+        };
+      }
+      if (prodPdf?.kind === "pdf_png") {
+        const imgRes = await extractAndParseInvoiceImage(
+          prodPdf.pngBuf,
+          filename.replace(/\.pdf$/i, ".png"),
+          { voiceTranscript: options?.voiceTranscript }
+        );
+        return {
+          ...imgRes,
+          extractKind:
+            imgRes.extractKind === "image_ocr_tesseract" ? "pdf_scanned_ocr" : imgRes.extractKind,
+        };
+      }
+    }
   }
 
   const ex = extractTextFromBuffer(buf, filename);

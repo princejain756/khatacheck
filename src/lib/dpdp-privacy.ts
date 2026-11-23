@@ -39,6 +39,8 @@ const REGEX_AADHAAR = /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g;
 const REGEX_PAN = /\b[A-Za-z]{5}[0-9]{4}[A-Za-z]\b/g;
 const REGEX_EMAIL =
   /\b[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,4}\.[A-Za-z]{2,15}\b/g;
+const REGEX_OCR_BROKEN_EMAIL =
+  /\b[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@[A-Za-z0-9-]{2,63}(?:\s+(?:co\s+in|com|in|org|net|edu|gov))\b/gi;
 const REGEX_SPOKEN_EMAIL =
   /\b[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}(?:(?:\s+(?:dot|underscore)\s+|\s+\.\s*)[A-Za-z0-9._%+-]{1,32}){0,4}\s+at\s+(?:[A-Za-z0-9-]*[A-Za-z][A-Za-z0-9-]*)(?:\.[A-Za-z0-9-]{1,63}|\s+\.\s*[A-Za-z0-9-]{1,63}|\s+dot\s+[A-Za-z0-9-]{1,63}){0,3}(?:\.[A-Za-z]{2,15}|\s+\.\s*[A-Za-z]{2,15}|\s+dot\s+[A-Za-z]{2,15})\b/gi;
 const REGEX_UPI =
@@ -88,6 +90,7 @@ export function scrubPiiForModelEgress(rawText: string | undefined): ScrubResult
 
   collect(REGEX_UPI, "[UPI_REDACTED]", "upi_id");
   collect(REGEX_EMAIL, "[EMAIL_REDACTED]", "personal_email");
+  collect(REGEX_OCR_BROKEN_EMAIL, "[EMAIL_REDACTED]", "personal_email");
   collect(REGEX_SPOKEN_EMAIL, "[EMAIL_REDACTED]", "personal_email");
   collect(REGEX_MOBILE, "[MOBILE_REDACTED]", "mobile_number", true);
   collect(REGEX_AADHAAR, "[AADHAAR_REDACTED]", "aadhaar_like", true);

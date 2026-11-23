@@ -20,7 +20,12 @@ import {
   SUBGROUP_LABELS,
   labelFor,
 } from "@/lib/display-labels";
-import type { BenchmarkReport, E2eOcrAsrReport, ExternalHfReport } from "@/lib/types";
+import type {
+  BenchmarkReport,
+  E2eOcrAsrReport,
+  ExternalHfReport,
+  RealSmeValidationReport,
+} from "@/lib/types";
 
 interface Props {
   initialReport: BenchmarkReport;
@@ -30,6 +35,7 @@ interface Props {
   initialExternalHfReport?: ExternalHfReport | null;
   initialExternalHfHeldout?: ExternalHfReport | null;
   initialExternalHfDevRerun?: ExternalHfReport | null;
+  initialRealSmeReport?: RealSmeValidationReport | null;
 }
 
 const RED_TEAM_FAMILY_ORDER = [
@@ -65,6 +71,7 @@ export function BenchmarksClient({
   initialExternalHfReport = null,
   initialExternalHfHeldout = null,
   initialExternalHfDevRerun = null,
+  initialRealSmeReport = null,
 }: Props) {
   const [report, setReport] = useState<BenchmarkReport>(initialReport);
   const [v2Report, setV2Report] = useState<BenchmarkReport | null>(initialV2Report);
@@ -1206,6 +1213,114 @@ export function BenchmarksClient({
               </div>
             ) : null}
           </div>
+        </div>
+      ) : null}
+
+      {/* Anonymized Single-SME Real B2B GST Validation (v2.1 Offline Evaluation) */}
+      {initialRealSmeReport ? (
+        <div className="app-card p-4 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="type-section text-ink flex items-center gap-1.5">
+                <ScanText className="w-4 h-4 text-cobalt shrink-0" />
+                Single-SME Real B2B Validation ({initialRealSmeReport.v21RealB2bPdfSummary.totalPdfs} Real PDFs · {initialRealSmeReport.v21HandwrittenOodSummary.totalPhotos} Handwritten Slips)
+              </h2>
+              <p className="type-meta text-muted mt-0.5">
+                Anonymized offline validation on {initialRealSmeReport.v21RealB2bPdfSummary.uniqueVendors} real Indian B2B vendors across {initialRealSmeReport.v21RealB2bPdfSummary.uniqueStates} states ({initialRealSmeReport.v21RealB2bPdfSummary.preGst2Count} pre-GST-2.0, {initialRealSmeReport.v21RealB2bPdfSummary.postGst2Count} post-GST-2.0, {initialRealSmeReport.v21RealB2bPdfSummary.scannedPdfCount} scanned PDF) plus {initialRealSmeReport.v21HandwrittenOodSummary.uniquePhysicalSlips} unique non-GST handwritten slips. Multi-store 10-shop rollout remains Not Run (Gate 5 Hold).
+              </p>
+            </div>
+            <span className="inline-flex items-center whitespace-nowrap pill-success type-pill px-2 py-0.5 rounded">
+              Anonymized Offline v2.1
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-line bg-subtle/60 p-3 space-y-1">
+              <div className="type-kpi-label text-faint">PDF Ingestion &amp; GSTIN/Schedule</div>
+              <div className="type-section numeral text-ink">
+                {initialRealSmeReport.v21RealB2bPdfSummary.extractedPdfOrScannedOcrCount}/{initialRealSmeReport.v21RealB2bPdfSummary.totalPdfs} Extracted · {initialRealSmeReport.v21RealB2bPdfSummary.vendorGstinValidCount}/{initialRealSmeReport.v21RealB2bPdfSummary.totalPdfs} GSTIN/Dates
+              </div>
+              <div className="type-meta font-code text-muted">
+                v2.0 baseline {initialRealSmeReport.frozenV20Baseline.rawPdfExtractedCount}/{initialRealSmeReport.frozenV20Baseline.totalPdfs} -&gt; v2.1-alpha {initialRealSmeReport.v21AlphaZeroShot.grandTotalExactMatchCount}/{initialRealSmeReport.v21AlphaZeroShot.totalPdfs} -&gt; v2.1 {initialRealSmeReport.v21RealB2bPdfSummary.grandTotalExactMatchCount}/{initialRealSmeReport.v21RealB2bPdfSummary.totalPdfs} Totals
+              </div>
+            </div>
+            <div className="rounded-lg border border-line bg-subtle/60 p-3 space-y-1">
+              <div className="type-kpi-label text-faint">HSN/SAC &amp; PII Redaction</div>
+              <div className="type-section numeral text-ink">
+                {initialRealSmeReport.v21RealB2bPdfSummary.hsnSacMatchedCount}/{initialRealSmeReport.v21RealB2bPdfSummary.totalPdfs} HSN/SAC · {initialRealSmeReport.v21RealB2bPdfSummary.piiRedactedCasesCount}/{initialRealSmeReport.v21RealB2bPdfSummary.totalPdfs} PII Redacted
+              </div>
+              <div className="type-meta font-code text-muted">
+                p50 {initialRealSmeReport.v21RealB2bPdfSummary.wallClockP50Ms} ms · max {initialRealSmeReport.v21RealB2bPdfSummary.wallClockMaxMs} ms
+              </div>
+            </div>
+            <div className="rounded-lg border border-line bg-subtle/60 p-3 space-y-1">
+              <div className="type-kpi-label text-faint">Handwritten OOD Stress Check</div>
+              <div className="type-section numeral text-ink">
+                {initialRealSmeReport.v21HandwrittenOodSummary.safeManualFallbackCount}/{initialRealSmeReport.v21HandwrittenOodSummary.totalPhotos} Safe Abstain · {initialRealSmeReport.v21HandwrittenOodSummary.hallucinatedTotalsCount} Hallucinations
+              </div>
+              <div className="type-meta font-code text-muted">
+                {initialRealSmeReport.v21HandwrittenOodSummary.ocrEmailSpaceDotFixedCount}/{initialRealSmeReport.v21HandwrittenOodSummary.totalPhotos} OCR email scrub fixed · Rs 5,400 real slip error found
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-line">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-line bg-subtle text-faint">
+                  <th className="py-2 px-3 type-table-head">ID</th>
+                  <th className="py-2 px-3 type-table-head">Anonymized B2B Category</th>
+                  <th className="py-2 px-3 type-table-head">States</th>
+                  <th className="py-2 px-3 type-table-head">Schedule / HSN</th>
+                  <th className="py-2 px-3 type-table-head">Kind</th>
+                  <th className="py-2 px-3 type-table-head text-right">Total</th>
+                  <th className="py-2 px-3 type-table-head text-right">GSTIN / Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {initialRealSmeReport.b2bCases.map((item) => (
+                  <tr key={item.caseId} className="hover:bg-subtle/60">
+                    <td className="py-2 px-3 type-table-cell font-code text-ink whitespace-nowrap">
+                      {item.caseId}
+                    </td>
+                    <td className="py-2 px-3 type-table-cell text-ink">
+                      {item.category}
+                    </td>
+                    <td className="py-2 px-3 type-table-cell font-code text-muted whitespace-nowrap">
+                      {item.statePair}
+                    </td>
+                    <td className="py-2 px-3 type-table-cell font-code text-muted whitespace-nowrap">
+                      {item.expectedSchedule} · {item.expectedHsnSacPrefix} {item.hsnSacMatched ? "(hit)" : "(miss)"}
+                    </td>
+                    <td className="py-2 px-3 type-table-cell font-code text-muted whitespace-nowrap">
+                      {item.extractKind}
+                    </td>
+                    <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                          item.grandTotalMatched ? "pill-success" : "pill-warning"
+                        }`}
+                      >
+                        {item.grandTotalMatched ? "Exact" : "Partial"}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 type-table-cell text-right whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center whitespace-nowrap type-pill px-2 py-0.5 rounded ${
+                          item.vendorGstinExtractedAndValid && item.dateAndScheduleMatched
+                            ? "pill-success"
+                            : "pill-warning"
+                        }`}
+                      >
+                        {item.vendorGstinExtractedAndValid && item.dateAndScheduleMatched ? "Pass" : "Partial"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="type-meta text-muted">
+            {initialRealSmeReport.manualTimingNote}
+          </p>
         </div>
       ) : null}
 

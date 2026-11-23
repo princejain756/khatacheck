@@ -245,3 +245,14 @@ export function validateImageMagicBytes(buf: Buffer): {
     reason: "Unsupported or mismatched image file signature (only PNG, JPEG, and WebP allowed)",
   };
 }
+
+export function validatePdfMagicBytes(buf: Buffer): { valid: boolean; reason?: string } {
+  if (!buf || buf.length < 5) {
+    return { valid: false, reason: "PDF file is truncated or missing %PDF- magic header" };
+  }
+  const head = buf.subarray(0, Math.min(buf.length, 1024)).toString("latin1");
+  if (head.includes("%PDF-")) {
+    return { valid: true };
+  }
+  return { valid: false, reason: "Unsupported or invalid PDF signature (missing %PDF- header)" };
+}

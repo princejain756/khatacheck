@@ -377,13 +377,40 @@ export const HSN_SCHEDULE_60_V2_GST2: readonly HsnRuleEntry[] = HSN_SCHEDULE_60_
 
 export const HSN_SCHEDULE_60: readonly HsnRuleEntry[] = HSN_SCHEDULE_60_V1;
 
+// Extended B2B SME packaging & service SAC headings (+6 -> 66 total CBIC headings) while keeping HSN_SCHEDULE_60 fixed
+export const SME_B2B_EXTRA_HEADINGS_V1: readonly HsnRuleEntry[] = [
+  hsn("3923", "Articles for conveyance or packing of goods, of plastics (seals/pouches)", "fmcg", 18),
+  hsn("4819", "Cartons, boxes, cases & bags of corrugated paper or paperboard", "fmcg", 12),
+  hsn("9964", "Scheduled domestic passenger air transport services (SAC 9964)", "fmcg", 5),
+  hsn("9965", "Goods transport agency & domestic road freight services (SAC 9965)", "fmcg", 5),
+  hsn("9968", "Postal, courier & local logistics delivery services (SAC 9968)", "fmcg", 18),
+  hsn("9983", "Professional, technical & online listing/advertising services (SAC 9983)", "fmcg", 18),
+];
+
+export const SME_B2B_EXTRA_HEADINGS_V2_GST2: readonly HsnRuleEntry[] = SME_B2B_EXTRA_HEADINGS_V1.map((entry) => {
+  const gstPct = (entry.hsnCode === "4819" ? 5 : Math.round(entry.igstBps / 100)) as SupportedGstPct;
+  return hsnWithSchedule(entry.hsnCode, entry.description, entry.merchandiseGroup, gstPct, "v2_gst2", {
+    taxTreatment: entry.taxTreatment,
+  });
+});
+
+export const HSN_SCHEDULE_66_V1: readonly HsnRuleEntry[] = [
+  ...HSN_SCHEDULE_60_V1,
+  ...SME_B2B_EXTRA_HEADINGS_V1,
+];
+
+export const HSN_SCHEDULE_66_V2_GST2: readonly HsnRuleEntry[] = [
+  ...HSN_SCHEDULE_60_V2_GST2,
+  ...SME_B2B_EXTRA_HEADINGS_V2_GST2,
+];
+
 const HSN_MAP_V1 = new Map<string, HsnRuleEntry>();
-for (const entry of HSN_SCHEDULE_60_V1) {
+for (const entry of HSN_SCHEDULE_66_V1) {
   HSN_MAP_V1.set(entry.hsnCode, entry);
 }
 
 const HSN_MAP_V2 = new Map<string, HsnRuleEntry>();
-for (const entry of HSN_SCHEDULE_60_V2_GST2) {
+for (const entry of HSN_SCHEDULE_66_V2_GST2) {
   HSN_MAP_V2.set(entry.hsnCode, entry);
 }
 

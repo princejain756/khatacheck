@@ -8,6 +8,7 @@ import {
   extractClientIp,
   tryAcquireConcurrency,
   validateImageMagicBytes,
+  validatePdfMagicBytes,
 } from "@/lib/rate-limit";
 import type { InvoiceInput } from "@/lib/types";
 import {
@@ -126,6 +127,14 @@ export async function POST(req: NextRequest) {
           if (!magicCheck.valid) {
             return NextResponse.json(
               { error: magicCheck.reason || "Invalid image signature" },
+              { status: 415, headers: { "Cache-Control": "no-store" } }
+            );
+          }
+        } else if (ext === ".pdf" || file.type.toLowerCase() === "application/pdf") {
+          const pdfMagic = validatePdfMagicBytes(buf);
+          if (!pdfMagic.valid) {
+            return NextResponse.json(
+              { error: pdfMagic.reason || "Invalid PDF signature" },
               { status: 415, headers: { "Cache-Control": "no-store" } }
             );
           }
